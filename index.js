@@ -633,5 +633,6 @@ ${message.body}`
     console.log('Error:', err.message);
   }
 });
-
+console.log('NEW CODE VERSION LOADED');
 client.initialize();
+
