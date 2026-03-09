@@ -1,5 +1,4 @@
 const { Client, LocalAuth } = require('whatsapp-web.js');
-const qrcode = require('qrcode-terminal');
 const OpenAI = require('openai');
 const { google } = require('googleapis');
 
@@ -122,7 +121,7 @@ function detectEventsFromMessage(text) {
   const found = [];
 
   for (const item of checks) {
-    const matched = item.patterns.some(pattern => pattern.test(t));
+    const matched = item.patterns.some((pattern) => pattern.test(t));
     if (matched) found.push(item.value);
   }
 
@@ -186,7 +185,7 @@ function enrichPeopleFromRelationship(people, text) {
   const partnerGender = inferPartnerGenderFromRelationship(text);
   const partnerName = extractPartnerNameFromRelationship(text);
 
-  const result = people.map(person => ({
+  const result = people.map((person) => ({
     name: String(person.name || '').trim(),
     phone: String(person.phone || '').trim(),
     gender: normalizeGender(person.gender || '')
@@ -273,7 +272,7 @@ function fillMissingDetailsFromText(people, text) {
 
   const inferredSenderGender = inferSenderGenderFromRelationship(content);
 
-  const missingIndex = result.findIndex(p => isBlank(p.name));
+  const missingIndex = result.findIndex((p) => isBlank(p.name));
   if (missingIndex !== -1) {
     result[missingIndex] = {
       ...result[missingIndex],
@@ -286,7 +285,7 @@ function fillMissingDetailsFromText(people, text) {
 }
 
 function allPeopleHaveNames(people) {
-  return Array.isArray(people) && people.length > 0 && people.every(p => !isBlank(p.name));
+  return Array.isArray(people) && people.length > 0 && people.every((p) => !isBlank(p.name));
 }
 
 async function getSheetData() {
@@ -304,7 +303,7 @@ async function getSheetId() {
   });
 
   const sheet = spreadsheet.data.sheets.find(
-    s => s.properties.title === SHEET_NAME
+    (s) => s.properties.title === SHEET_NAME
   );
 
   if (!sheet) {
@@ -407,7 +406,7 @@ async function deleteAllRowsBySenderAndEvent(sender, event) {
 
   rowsToDelete.sort((a, b) => b - a);
 
-  const requests = rowsToDelete.map(rowNumber => ({
+  const requests = rowsToDelete.map((rowNumber) => ({
     deleteDimension: {
       range: {
         sheetId,
@@ -447,12 +446,24 @@ const client = new Client({
 });
 
 client.on('qr', (qr) => {
-  console.log('Scan this QR with WhatsApp');
-  qrcode.generate(qr, { small: true });
+  console.log('Scan this QR code in your browser:');
+  console.log(`https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(qr)}`);
 });
 
 client.on('ready', () => {
   console.log('Bot is ready!');
+});
+
+client.on('authenticated', () => {
+  console.log('WhatsApp authenticated successfully.');
+});
+
+client.on('auth_failure', (msg) => {
+  console.log('Authentication failed:', msg);
+});
+
+client.on('disconnected', (reason) => {
+  console.log('WhatsApp disconnected:', reason);
 });
 
 client.on('message', async (message) => {
@@ -545,20 +556,20 @@ ${message.body}`
 
     if (!Array.isArray(events) || events.length === 0) {
       if (Array.isArray(data.events) && data.events.length > 0) {
-        events = data.events.map(e => normalizeEvent(e));
+        events = data.events.map((e) => normalizeEvent(e));
       } else {
         events = ['March'];
       }
     }
 
-    events = [...new Set(events.map(e => normalizeEvent(e)))];
+    events = [...new Set(events.map((e) => normalizeEvent(e)))];
 
     const dayResult = detectDaysFromMessage(message.body);
     const sat = dayResult.sat;
     const sun = dayResult.sun;
 
     if (data.intent === 'registration' && Array.isArray(data.people) && data.people.length > 0) {
-      let cleanedPeople = data.people.map(person => ({
+      let cleanedPeople = data.people.map((person) => ({
         name: String(person.name || '').trim(),
         phone: String(person.phone || '').trim(),
         gender: normalizeGender(person.gender || '')
@@ -566,8 +577,8 @@ ${message.body}`
 
       cleanedPeople = enrichPeopleFromRelationship(cleanedPeople, message.body);
 
-      const validPeople = cleanedPeople.filter(person => !isBlank(person.name));
-      const missingPeople = cleanedPeople.filter(person => isBlank(person.name));
+      const validPeople = cleanedPeople.filter((person) => !isBlank(person.name));
+      const missingPeople = cleanedPeople.filter((person) => isBlank(person.name));
 
       let addedCount = 0;
 
@@ -605,7 +616,6 @@ ${message.body}`
       if (addedCount === 0 && missingPeople.length === 0) {
         console.log('Registration detected but nothing new was added.');
       }
-
     } else if (data.intent === 'cancellation') {
       const deletedCount = await deleteAllRowsBySenderAndEvents(sender, events);
 
@@ -616,11 +626,9 @@ ${message.body}`
       } else {
         console.log('Cancellation detected, but no matching registration found.');
       }
-
     } else {
       console.log('Not a registration or cancellation message.');
     }
-
   } catch (err) {
     console.log('Error:', err.message);
   }
