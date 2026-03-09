@@ -203,7 +203,6 @@ function enrichPeopleFromRelationship(people, text) {
     }
   }
 
-  // Case 1: unnamed sender like "me and my wife Sherry"
   if (blankNameIndexes.length > 0 && senderGender) {
     for (const idx of blankNameIndexes) {
       if (isBlank(result[idx].gender)) {
@@ -212,7 +211,6 @@ function enrichPeopleFromRelationship(people, text) {
     }
   }
 
-  // Case 2: named partner explicitly after wife/husband
   if (partnerName && partnerGender) {
     for (let i = 0; i < result.length; i++) {
       if (
@@ -225,7 +223,6 @@ function enrichPeopleFromRelationship(people, text) {
     }
   }
 
-  // Case 3: two named people, one already known female/male, infer the other opposite
   if (result.length === 2) {
     const g1 = normalizeGender(result[0].gender);
     const g2 = normalizeGender(result[1].gender);
@@ -241,7 +238,6 @@ function enrichPeopleFromRelationship(people, text) {
     }
   }
 
-  // Case 4: only one named person with blank gender and relationship clearly points to partner
   if (namedIndexes.length === 1 && partnerGender) {
     const idx = namedIndexes[0];
     if (isBlank(result[idx].gender)) {
@@ -443,7 +439,11 @@ async function deleteAllRowsBySenderAndEvents(sender, events) {
 }
 
 const client = new Client({
-  authStrategy: new LocalAuth()
+  authStrategy: new LocalAuth(),
+  puppeteer: {
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox']
+  }
 });
 
 client.on('qr', (qr) => {
