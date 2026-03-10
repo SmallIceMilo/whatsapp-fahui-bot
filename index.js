@@ -6,6 +6,10 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
+if (!process.env.GOOGLE_SERVICE_ACCOUNT_JSON) {
+  throw new Error('GOOGLE_SERVICE_ACCOUNT_JSON is missing');
+}
+
 const serviceAccount = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
 
 const auth = new google.auth.GoogleAuth({
@@ -637,5 +641,6 @@ ${message.body}`
 });
 console.log('NEW CODE VERSION LOADED');
 client.initialize();
+
 
 
