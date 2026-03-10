@@ -6,8 +6,10 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
+const serviceAccount = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+
 const auth = new google.auth.GoogleAuth({
-  keyFile: 'poised-gateway-426003-d0-6c2b067bfa1d.json',
+  credentials: serviceAccount,
   scopes: ['https://www.googleapis.com/auth/spreadsheets']
 });
 
@@ -635,4 +637,5 @@ ${message.body}`
 });
 console.log('NEW CODE VERSION LOADED');
 client.initialize();
+
 
