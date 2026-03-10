@@ -6,11 +6,28 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
-if (!process.env.GOOGLE_SERVICE_ACCOUNT_JSON) {
-  throw new Error('GOOGLE_SERVICE_ACCOUNT_JSON is missing');
+const requiredGoogleVars = [
+  'GOOGLE_PROJECT_ID',
+  'GOOGLE_PRIVATE_KEY_ID',
+  'GOOGLE_PRIVATE_KEY',
+  'GOOGLE_CLIENT_EMAIL',
+  'GOOGLE_CLIENT_ID'
+];
+
+for (const varName of requiredGoogleVars) {
+  if (!process.env[varName]) {
+    throw new Error(`${varName} is missing`);
+  }
 }
 
-const serviceAccount = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+const serviceAccount = {
+  type: 'service_account',
+  project_id: process.env.GOOGLE_PROJECT_ID,
+  private_key_id: process.env.GOOGLE_PRIVATE_KEY_ID,
+  private_key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+  client_email: process.env.GOOGLE_CLIENT_EMAIL,
+  client_id: process.env.GOOGLE_CLIENT_ID
+};
 
 const auth = new google.auth.GoogleAuth({
   credentials: serviceAccount,
@@ -639,8 +656,6 @@ ${message.body}`
     console.log('Error:', err.message);
   }
 });
+
 console.log('NEW CODE VERSION LOADED');
 client.initialize();
-
-
-
