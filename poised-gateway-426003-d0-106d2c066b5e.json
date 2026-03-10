@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "poised-gateway-426003-d0",
+  "private_key_id": "106d2c066b5e137811a883f2f2d4bff412fdca4b",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQDzMDcJgxBB9Ngd\nmdZ3tj8OD0PsM3qprPLv4adirAuOltTUiKib5RsNCHxFqPbCtiNDDNj639D4bEFB\nPMCLPWVQ1YUxqvCGXINVcGU3GS7DserLB3WVnSBYpEzbqXYNzqtFXmow+fbZ65Pu\nTAt3gzyqL9ujtHFEj9BEUvTmO5Pe5zpVVi+34qD4cwFBCIngeY9Y/Hzvy+UeW9b8\njCPyDBH2WbObxhUSxBvWEvDB/vf2dT5msvp48S4pfuYhrszXklofQMRftB+tyMaT\ncl7K1ZQtskoE5psOaaE296sX6xhkPKIaU4S8XcAhsG7iR/Xmx0kUFzoEe0AhHqt8\ntZvHQJWHAgMBAAECggEAIsVpkSQavnt+LRlSZ3J46I85NHwV1U3jvHXEw6B61Ivv\naWYSyZuD9ySX9DPY+HUnbI5ZNeGrlOGRoPzJQP9pzZmB/lyFIIj4xE4aQrsIizWU\nryvlXZuGRPZVAPFlbkr3BSefQlpzN6xtzdw0pYVvtpu6KVmC+n0fl61O095/4ZZh\nzLvqLvUVj/m/m8Z//3iGEvZocvz3jYs1J4n6z2FdIGhwI0mX1ehLNF858CMUTlIC\nvt5OoRvHHWbbsgUXEa/mIHvI36h6wJsstoSmph4TGpTRq3X9uD0buq8BDER5D7oL\nV+3qVt5fuOsHwquDFuXK2ZDNZn1b0FTRhCx6SNVlZQKBgQD+fK//2dOkvAPI1Ey2\ninXbrLRkGXuwqppqaIq4bVufw4tgOPjXDqqYRM59gGX0+zlQa6z58MNxNkb8rxdb\nDi0mQn0rGtp9jxYRxISCuU35bWoWjuyBWVUTYC+ETBIhOSC/rRGWPilx+mtTbdV+\ncs+xp3YDM79sLgNByE/tDiSC+wKBgQD0olTitMjh1/GdjFp2yoFioRS8/atzq3sV\nfVcSVjMrybf6Fcfs2VO3NgHuht3U7EgSSra72jH3b9Mc6GL88jLC/nAngs0/B1r1\nyHxCaimhzxrpYChgDKwVh0LhHBlLasnXXO1Jn79HTUPN/3FW4+nGS5iRftJpwKFT\nMYIfoJJR5QKBgEeYwNNUb0zbcJ0hzWtVzQ6+qgm3eascdFEXlF+KtMpf82hg3vFy\nOOCaCxYX95dSzq8nfATdjb7eLF6OzB1cAavP7PMhnPLSPL1G8pjslVllRQGPuE4z\n2dGXsAaieD9MmUAT6uzAFFzyvRs9vWDT4Eb0/CiueF5xG414U7Q31GHdAoGAaiy6\nYtrMBRlQSGzOJpilp0T6VzxR2ZYniaAo1lCLTQnzy5sAdo+sgevy0q++P9d9QFMl\nFEsTPK1QF0/VBqun1HHSA5QFuMFcfShSphClmRDmQTv2yhk15vIZ2NH1OIJUsCAo\n7LdksXGbaCDh9DBfGi1dPmiosjVkz1LBgzCR0PECgYA2ja0ZCldoNH9I+E5FOeme\n4gyH9NV74zqAqhidlT/j0fu2NiBNQ5PssNgZepLPXd/CV4HUftUoCqK1Qg4ksSSJ\nQBfc3CzF2NVjctjN6a49uUYXujiSShbUfETJOdUjkIYJFQXpeKk3CLRzIRTLSTgD\nv89wb3UtBZ1/Gvl5YHiwZQ==\n-----END PRIVATE KEY-----\n",
+  "client_email": "fahui-whatsapp-bot@poised-gateway-426003-d0.iam.gserviceaccount.com",
+  "client_id": "107085894025966329495",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/fahui-whatsapp-bot%40poised-gateway-426003-d0.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
