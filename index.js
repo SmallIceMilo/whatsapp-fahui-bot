@@ -1,662 +1,513 @@
-const { Client, LocalAuth } = require('whatsapp-web.js');
-const OpenAI = require('openai');
-const { google } = require('googleapis');
+require("dotenv").config();
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
+const { Client, LocalAuth } = require("whatsapp-web.js");
+const { google } = require("googleapis");
 
-const requiredGoogleVars = [
-  'GOOGLE_PROJECT_ID',
-  'GOOGLE_PRIVATE_KEY_ID',
-  'GOOGLE_PRIVATE_KEY',
-  'GOOGLE_CLIENT_EMAIL',
-  'GOOGLE_CLIENT_ID'
-];
+// =========================
+// CONFIG
+// =========================
+const SHEET_ID = process.env.GOOGLE_SHEET_ID; // put your Google Sheet ID in Railway
+const SHEET_NAME = process.env.GOOGLE_SHEET_NAME || "Sheet1";
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
-for (const varName of requiredGoogleVars) {
-  if (!process.env[varName]) {
-    throw new Error(`${varName} is missing`);
-  }
+if (!SHEET_ID) {
+  throw new Error("Missing GOOGLE_SHEET_ID in environment variables.");
+}
+if (!OPENAI_API_KEY) {
+  throw new Error("Missing OPENAI_API_KEY in environment variables.");
 }
 
 const serviceAccount = {
-  type: 'service_account',
+  type: "service_account",
   project_id: process.env.GOOGLE_PROJECT_ID,
   private_key_id: process.env.GOOGLE_PRIVATE_KEY_ID,
-  private_key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+  private_key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
   client_email: process.env.GOOGLE_CLIENT_EMAIL,
-  client_id: process.env.GOOGLE_CLIENT_ID
+  client_id: process.env.GOOGLE_CLIENT_ID,
 };
 
 const auth = new google.auth.GoogleAuth({
   credentials: serviceAccount,
-  scopes: ['https://www.googleapis.com/auth/spreadsheets']
+  scopes: ["https://www.googleapis.com/auth/spreadsheets"],
 });
 
-const sheets = google.sheets({ version: 'v4', auth });
+const sheets = google.sheets({ version: "v4", auth });
 
-const SPREADSHEET_ID = '1VMQNks_r10U8jNEe3s4sBwi79kzMMw8tS2UjFka7vs4';
-const SHEET_NAME = 'Sheet1';
+// =========================
+// WHATSAPP CLIENT
+// =========================
+const client = new Client({
+  authStrategy: new LocalAuth({
+    dataPath: "/app/.wwebjs_auth",
+  }),
+  puppeteer: {
+    headless: true,
+    args: ["--no-sandbox", "--disable-setuid-sandbox"],
+  },
+});
 
-const pendingRegistrations = new Map();
+client.on("qr", (qr) => {
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(qr)}`;
+  console.log("Scan this QR code in your browser:");
+  console.log(qrUrl);
+});
 
-function isBlank(value) {
-  return !value || String(value).trim() === '';
+client.on("ready", () => {
+  console.log("Client is ready!");
+});
+
+client.on("authenticated", () => {
+  console.log("WhatsApp authenticated.");
+});
+
+client.on("auth_failure", (msg) => {
+  console.error("Authentication failure:", msg);
+});
+
+client.on("disconnected", (reason) => {
+  console.log("Client disconnected:", reason);
+});
+
+// =========================
+// HELPERS
+// =========================
+function getTimestamp() {
+  return new Date().toISOString();
 }
 
-function normalizeText(value) {
-  return String(value || '').trim().toLowerCase();
+function getSenderWA(msg) {
+  return msg.from || "";
 }
 
-function normalizeName(name) {
-  return String(name || '').trim().toLowerCase();
+function getSenderPhone(msg) {
+  return (msg.from || "").split("@")[0];
+}
+
+function stripCodeFences(text) {
+  if (!text) return "";
+  return text
+    .replace(/^```json\s*/i, "")
+    .replace(/^```\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
 }
 
 function normalizeGender(gender) {
-  if (!gender) return '';
-
+  if (!gender) return "";
   const g = String(gender).trim().toLowerCase();
 
-  if (g === '男' || g === 'male' || g === 'm') return 'male';
-  if (g === '女' || g === 'female' || g === 'f') return 'female';
+  if (["m", "male", "man", "boy", "男"].includes(g)) return "Male";
+  if (["f", "female", "woman", "girl", "女"].includes(g)) return "Female";
+  return gender;
+}
 
-  return g;
+function normalizeYesNo(value, defaultValue = "YES") {
+  if (value === true) return "YES";
+  if (value === false) return "NO";
+  if (value == null || value === "") return defaultValue;
+
+  const v = String(value).trim().toLowerCase();
+  if (["yes", "y", "true", "去", "会去"].includes(v)) return "YES";
+  if (["no", "n", "false", "不去", "不会去"].includes(v)) return "NO";
+  return defaultValue;
 }
 
 function normalizeEvent(event) {
-  if (!event) return 'March';
-
+  if (!event) return "";
   const e = String(event).trim().toLowerCase();
 
-  const monthMap = {
-    '1': 'January',
-    '一月': 'January',
-    'jan': 'January',
-    'january': 'January',
-    '2': 'February',
-    '二月': 'February',
-    'feb': 'February',
-    'february': 'February',
-    '3': 'March',
-    '三月': 'March',
-    'mar': 'March',
-    'march': 'March',
-    '4': 'April',
-    '四月': 'April',
-    'apr': 'April',
-    'april': 'April',
-    '5': 'May',
-    '五月': 'May',
-    'may': 'May',
-    '6': 'June',
-    '六月': 'June',
-    'jun': 'June',
-    'june': 'June',
-    '7': 'July',
-    '七月': 'July',
-    'jul': 'July',
-    'july': 'July',
-    '8': 'August',
-    '八月': 'August',
-    'aug': 'August',
-    'august': 'August',
-    '9': 'September',
-    '九月': 'September',
-    'sep': 'September',
-    'sept': 'September',
-    'september': 'September',
-    '10': 'October',
-    '十月': 'October',
-    'oct': 'October',
-    'october': 'October',
-    '11': 'November',
-    '十一月': 'November',
-    'nov': 'November',
-    'november': 'November',
-    '12': 'December',
-    '十二月': 'December',
-    'dec': 'December',
-    'december': 'December'
+  const map = {
+    "january": "January",
+    "jan": "January",
+    "一月": "January",
+    "february": "February",
+    "feb": "February",
+    "二月": "February",
+    "march": "March",
+    "mar": "March",
+    "三月": "March",
+    "april": "April",
+    "apr": "April",
+    "四月": "April",
+    "may": "May",
+    "五月": "May",
+    "june": "June",
+    "jun": "June",
+    "六月": "June",
+    "july": "July",
+    "jul": "July",
+    "七月": "July",
+    "august": "August",
+    "aug": "August",
+    "八月": "August",
+    "september": "September",
+    "sep": "September",
+    "sept": "September",
+    "九月": "September",
+    "october": "October",
+    "oct": "October",
+    "十月": "October",
+    "november": "November",
+    "nov": "November",
+    "十一月": "November",
+    "december": "December",
+    "dec": "December",
+    "十二月": "December",
   };
 
-  return monthMap[e] || String(event).trim();
+  return map[e] || event;
 }
 
-function detectEventsFromMessage(text) {
-  const t = normalizeText(text);
-
-  const checks = [
-    { patterns: [/\b1\b/, /一月/, /\bjan\b/, /\bjanuary\b/], value: 'January' },
-    { patterns: [/\b2\b/, /二月/, /\bfeb\b/, /\bfebruary\b/], value: 'February' },
-    { patterns: [/\b3\b/, /三月/, /\bmar\b/, /\bmarch\b/], value: 'March' },
-    { patterns: [/\b4\b/, /四月/, /\bapr\b/, /\bapril\b/], value: 'April' },
-    { patterns: [/\b5\b/, /五月/, /\bmay\b/], value: 'May' },
-    { patterns: [/\b6\b/, /六月/, /\bjun\b/, /\bjune\b/], value: 'June' },
-    { patterns: [/\b7\b/, /七月/, /\bjul\b/, /\bjuly\b/], value: 'July' },
-    { patterns: [/\b8\b/, /八月/, /\baug\b/, /\baugust\b/], value: 'August' },
-    { patterns: [/\b9\b/, /九月/, /\bsep\b/, /\bsept\b/, /\bseptember\b/], value: 'September' },
-    { patterns: [/\b10\b/, /十月/, /\boct\b/, /\boctober\b/], value: 'October' },
-    { patterns: [/\b11\b/, /十一月/, /\bnov\b/, /\bnovember\b/], value: 'November' },
-    { patterns: [/\b12\b/, /十二月/, /\bdec\b/, /\bdecember\b/], value: 'December' }
-  ];
-
-  const found = [];
-
-  for (const item of checks) {
-    const matched = item.patterns.some((pattern) => pattern.test(t));
-    if (matched) found.push(item.value);
-  }
-
-  return found.length > 0 ? found : ['March'];
+function isTestOnlyMessage(text) {
+  const t = String(text || "").trim().toLowerCase();
+  return ["test", "testing", "测试", "測試", "測试"].includes(t);
 }
 
-function detectDaysFromMessage(text) {
-  const t = normalizeText(text);
+function dedupePeople(people) {
+  const seen = new Set();
+  const result = [];
 
-  const hasSat = /(?:\bsat(?:urday)?\b|星期六|礼拜六|周六)/i.test(t);
-  const hasSun = /(?:\bsun(?:day)?\b|星期天|星期日|礼拜天|礼拜日|周日)/i.test(t);
-  const hasBothPhrase =
-    /(?:both days|two days|两天都来|两天|星期六和星期天|周六和周日|sat\s*(?:and|&)\s*sun|saturday\s*(?:and|&)\s*sunday)/i.test(t);
-
-  if (hasBothPhrase) return { sat: 'YES', sun: 'YES' };
-  if (hasSat && !hasSun) return { sat: 'YES', sun: 'NO' };
-  if (!hasSat && hasSun) return { sat: 'NO', sun: 'YES' };
-  if (hasSat && hasSun) return { sat: 'YES', sun: 'YES' };
-
-  return { sat: 'YES', sun: 'YES' };
-}
-
-function inferSenderGenderFromRelationship(text) {
-  const t = String(text || '').toLowerCase();
-
-  if (/(my wife|我老婆|我太太|妻子|太太)/i.test(t)) return 'male';
-  if (/(my husband|我老公|我先生|丈夫|先生)/i.test(t)) return 'female';
-
-  return '';
-}
-
-function inferPartnerGenderFromRelationship(text) {
-  const t = String(text || '').toLowerCase();
-
-  if (/(my wife|我老婆|我太太|妻子|太太)/i.test(t)) return 'female';
-  if (/(my husband|我老公|我先生|丈夫|先生)/i.test(t)) return 'male';
-
-  return '';
-}
-
-function extractPartnerNameFromRelationship(text) {
-  const content = String(text || '').trim();
-
-  const patterns = [
-    /(?:my wife|我太太|我老婆|妻子|太太)\s*[:：]?\s*([A-Za-z\u4e00-\u9fff]+)/i,
-    /(?:my husband|我老公|我先生|丈夫|先生)\s*[:：]?\s*([A-Za-z\u4e00-\u9fff]+)/i
-  ];
-
-  for (const pattern of patterns) {
-    const match = content.match(pattern);
-    if (match && match[1]) {
-      return match[1].trim().toLowerCase();
+  for (const p of people || []) {
+    const key = `${(p.name || "").trim()}|${(p.phone || "").trim()}|${(p.gender || "").trim()}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      result.push(p);
     }
   }
-
-  return '';
+  return result;
 }
 
-function enrichPeopleFromRelationship(people, text) {
-  const senderGender = inferSenderGenderFromRelationship(text);
-  const partnerGender = inferPartnerGenderFromRelationship(text);
-  const partnerName = extractPartnerNameFromRelationship(text);
+function inferSharedPhone(people) {
+  const phones = [...new Set((people || []).map((p) => (p.phone || "").trim()).filter(Boolean))];
+  return phones.length === 1 ? phones[0] : "";
+}
 
-  const result = people.map((person) => ({
-    name: String(person.name || '').trim(),
-    phone: String(person.phone || '').trim(),
-    gender: normalizeGender(person.gender || '')
+async function getSheetRows() {
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: `${SHEET_NAME}!A:I`,
+  });
+
+  const rows = res.data.values || [];
+  if (rows.length === 0) return { headers: [], rows: [] };
+
+  const headers = rows[0];
+  const dataRows = rows.slice(1).map((row, idx) => ({
+    rowNumber: idx + 2,
+    Timestamp: row[0] || "",
+    Event: row[1] || "",
+    SenderWA: row[2] || "",
+    Name: row[3] || "",
+    Phone: row[4] || "",
+    Gender: row[5] || "",
+    Sat: row[6] || "",
+    Sun: row[7] || "",
+    Sender_phone: row[8] || "",
   }));
 
-  const blankNameIndexes = [];
-  const namedIndexes = [];
-
-  for (let i = 0; i < result.length; i++) {
-    if (isBlank(result[i].name)) {
-      blankNameIndexes.push(i);
-    } else {
-      namedIndexes.push(i);
-    }
-  }
-
-  if (blankNameIndexes.length > 0 && senderGender) {
-    for (const idx of blankNameIndexes) {
-      if (isBlank(result[idx].gender)) {
-        result[idx].gender = senderGender;
-      }
-    }
-  }
-
-  if (partnerName && partnerGender) {
-    for (let i = 0; i < result.length; i++) {
-      if (
-        !isBlank(result[i].name) &&
-        normalizeName(result[i].name) === partnerName &&
-        isBlank(result[i].gender)
-      ) {
-        result[i].gender = partnerGender;
-      }
-    }
-  }
-
-  if (result.length === 2) {
-    const g1 = normalizeGender(result[0].gender);
-    const g2 = normalizeGender(result[1].gender);
-
-    if (g1 === 'female' && isBlank(g2) && senderGender) {
-      result[1].gender = senderGender;
-    } else if (g2 === 'female' && isBlank(g1) && senderGender) {
-      result[0].gender = senderGender;
-    } else if (g1 === 'male' && isBlank(g2) && senderGender === 'female') {
-      result[1].gender = 'female';
-    } else if (g2 === 'male' && isBlank(g1) && senderGender === 'female') {
-      result[0].gender = 'female';
-    }
-  }
-
-  if (namedIndexes.length === 1 && partnerGender) {
-    const idx = namedIndexes[0];
-    if (isBlank(result[idx].gender)) {
-      result[idx].gender = partnerGender;
-    }
-  }
-
-  return result;
+  return { headers, rows: dataRows };
 }
 
-function fillMissingDetailsFromText(people, text) {
-  const result = [...people];
-  const content = String(text || '').trim();
-
-  const patterns = [
-    /my name is\s+([a-zA-Z\u4e00-\u9fff]+)/i,
-    /i am\s+([a-zA-Z\u4e00-\u9fff]+)/i,
-    /i'm\s+([a-zA-Z\u4e00-\u9fff]+)/i,
-    /我是\s*([\u4e00-\u9fffA-Za-z]+)/i,
-    /我叫\s*([\u4e00-\u9fffA-Za-z]+)/i,
-    /名字是\s*([\u4e00-\u9fffA-Za-z]+)/i
-  ];
-
-  let extractedName = '';
-
-  for (const pattern of patterns) {
-    const match = content.match(pattern);
-    if (match && match[1]) {
-      extractedName = match[1].trim();
-      break;
-    }
-  }
-
-  const inferredSenderGender = inferSenderGenderFromRelationship(content);
-
-  const missingIndex = result.findIndex((p) => isBlank(p.name));
-  if (missingIndex !== -1) {
-    result[missingIndex] = {
-      ...result[missingIndex],
-      name: extractedName || result[missingIndex].name,
-      gender: result[missingIndex].gender || inferredSenderGender
-    };
-  }
-
-  return result;
-}
-
-function allPeopleHaveNames(people) {
-  return Array.isArray(people) && people.length > 0 && people.every((p) => !isBlank(p.name));
-}
-
-async function getSheetData() {
-  const response = await sheets.spreadsheets.values.get({
-    spreadsheetId: SPREADSHEET_ID,
-    range: `${SHEET_NAME}!A:H`
-  });
-
-  return response.data.values || [];
-}
-
-async function getSheetId() {
-  const spreadsheet = await sheets.spreadsheets.get({
-    spreadsheetId: SPREADSHEET_ID
-  });
-
-  const sheet = spreadsheet.data.sheets.find(
-    (s) => s.properties.title === SHEET_NAME
-  );
-
-  if (!sheet) {
-    throw new Error(`Sheet "${SHEET_NAME}" not found.`);
-  }
-
-  return sheet.properties.sheetId;
-}
-
-async function registrationExists(event, sender, name) {
-  const rows = await getSheetData();
-
-  if (rows.length <= 1) return false;
-
-  const targetEvent = normalizeText(event);
-  const targetSender = String(sender || '').trim();
-  const targetName = normalizeName(name);
-
-  for (let i = 1; i < rows.length; i++) {
-    const row = rows[i];
-    const rowEvent = normalizeText(row[1] || '');
-    const rowSender = String(row[2] || '').trim();
-    const rowName = normalizeName(row[3] || '');
-
-    if (
-      rowEvent === targetEvent &&
-      rowSender === targetSender &&
-      rowName === targetName
-    ) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-async function addRowIfNotExists(event, sender, name, phone, gender, sat, sun) {
-  if (isBlank(name)) {
-    console.log('Skipped adding row because name is blank.');
-    return false;
-  }
-
-  const exists = await registrationExists(event, sender, name);
-
-  if (exists) {
-    console.log(`Duplicate skipped: ${name} already registered for ${event}.`);
-    return false;
-  }
+async function appendRows(newRows) {
+  if (!newRows.length) return 0;
 
   await sheets.spreadsheets.values.append({
-    spreadsheetId: SPREADSHEET_ID,
-    range: `${SHEET_NAME}!A:H`,
-    valueInputOption: 'USER_ENTERED',
+    spreadsheetId: SHEET_ID,
+    range: `${SHEET_NAME}!A:I`,
+    valueInputOption: "USER_ENTERED",
     requestBody: {
-      values: [[
-        new Date().toLocaleString('en-SG', { timeZone: 'Asia/Singapore' }),
-        event || '',
-        sender || '',
-        name || '',
-        phone || '',
-        gender || '',
-        sat || 'NO',
-        sun || 'NO'
-      ]]
-    }
+      values: newRows,
+    },
   });
 
-  return true;
+  console.log(`Added ${newRows.length} new row(s) to Google Sheet.`);
+  return newRows.length;
 }
 
-async function deleteAllRowsBySenderAndEvent(sender, event) {
-  const rows = await getSheetData();
+async function deleteRowsByNumber(rowNumbers) {
+  if (!rowNumbers.length) return 0;
 
-  if (rows.length <= 1) {
-    console.log('No data rows found.');
-    return 0;
-  }
-
-  const targetSender = String(sender || '').trim();
-  const targetEvent = normalizeText(event);
-
-  const rowsToDelete = [];
-
-  for (let i = 1; i < rows.length; i++) {
-    const row = rows[i];
-    const rowEvent = normalizeText(row[1] || '');
-    const rowSender = String(row[2] || '').trim();
-
-    if (rowSender === targetSender && rowEvent === targetEvent) {
-      rowsToDelete.push(i + 1);
-    }
-  }
-
-  if (rowsToDelete.length === 0) {
-    console.log(`No matching rows found for sender=${sender}, event=${event}`);
-    return 0;
-  }
-
-  const sheetId = await getSheetId();
-
-  rowsToDelete.sort((a, b) => b - a);
-
-  const requests = rowsToDelete.map((rowNumber) => ({
-    deleteDimension: {
-      range: {
-        sheetId,
-        dimension: 'ROWS',
-        startIndex: rowNumber - 1,
-        endIndex: rowNumber
-      }
-    }
-  }));
+  const requests = rowNumbers
+    .sort((a, b) => b - a)
+    .map((rowNumber) => ({
+      deleteDimension: {
+        range: {
+          sheetId: 0,
+          dimension: "ROWS",
+          startIndex: rowNumber - 1,
+          endIndex: rowNumber,
+        },
+      },
+    }));
 
   await sheets.spreadsheets.batchUpdate({
-    spreadsheetId: SPREADSHEET_ID,
-    requestBody: { requests }
+    spreadsheetId: SHEET_ID,
+    requestBody: { requests },
   });
 
-  console.log(`Deleted ${rowsToDelete.length} row(s): ${rowsToDelete.join(', ')}`);
-  return rowsToDelete.length;
+  console.log(`Deleted row(s): ${rowNumbers.join(", ")}`);
+  return rowNumbers.length;
 }
 
-async function deleteAllRowsBySenderAndEvents(sender, events) {
-  let totalDeleted = 0;
+async function callOpenAIForExtraction(messageText) {
+  const prompt = `
+You are extracting structured data from WhatsApp messages about event registration.
 
-  for (const event of events) {
-    const count = await deleteAllRowsBySenderAndEvent(sender, event);
-    totalDeleted += count;
-  }
+Return STRICT JSON only. No markdown. No explanation.
 
-  return totalDeleted;
-}
-
-const client = new Client({
-  authStrategy: new LocalAuth(),
-  puppeteer: {
-    headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox']
-  }
-});
-
-client.on('qr', (qr) => {
-  console.log('Scan this QR code in your browser:');
-  console.log(`https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(qr)}`);
-});
-
-client.on('ready', () => {
-  console.log('Bot is ready!');
-});
-
-client.on('authenticated', () => {
-  console.log('WhatsApp authenticated successfully.');
-});
-
-client.on('auth_failure', (msg) => {
-  console.log('Authentication failed:', msg);
-});
-
-client.on('disconnected', (reason) => {
-  console.log('WhatsApp disconnected:', reason);
-});
-
-client.on('message', async (message) => {
-  console.log('Message received:', message.body);
-
-  try {
-    const sender = message.from;
-    const pending = pendingRegistrations.get(sender);
-
-    if (pending) {
-      const updatedPeople = fillMissingDetailsFromText(pending.people, message.body);
-
-      if (allPeopleHaveNames(updatedPeople)) {
-        let addedCount = 0;
-
-        for (const event of pending.events) {
-          for (const person of updatedPeople) {
-            const added = await addRowIfNotExists(
-              event,
-              sender,
-              person.name,
-              person.phone,
-              normalizeGender(person.gender),
-              pending.sat,
-              pending.sun
-            );
-
-            if (added) addedCount++;
-          }
-        }
-
-        pendingRegistrations.delete(sender);
-        console.log(`Pending registration completed. Added ${addedCount} row(s).`);
-        return;
-      } else {
-        pendingRegistrations.set(sender, {
-          ...pending,
-          people: updatedPeople
-        });
-        console.log('Still waiting for missing registration details.');
-        return;
-      }
-    }
-
-    const response = await openai.responses.create({
-      model: 'gpt-4.1-mini',
-      input: `Read this WhatsApp message and determine whether it is a registration, cancellation, question, or other message.
-
-Return JSON ONLY in this exact format:
+Schema:
 {
-  "intent": "registration" | "cancellation" | "question" | "other",
-  "events": [],
-  "people": [
+  "actions": [
     {
-      "name": "",
-      "phone": "",
-      "gender": ""
+      "type": "registration" | "cancellation" | "update" | "other",
+      "events": ["March"],
+      "people": [
+        {
+          "name": "Jeff",
+          "phone": "91234567",
+          "gender": "Male",
+          "sat": true,
+          "sun": true
+        }
+      ]
     }
   ]
 }
 
 Rules:
-- Use "registration" if the sender clearly wants to sign up / register.
-- Use "cancellation" if the sender says they cannot come, cannot make it, want to cancel, withdraw, 取消, 不来了, 不能来, cannot attend, not attending anymore.
-- If it is a question or unrelated message, set people to [].
-- Do not invent missing information.
-- "events" should be an array of month names only, like ["March"], ["March","April"].
-- If month is written in Chinese like 三月, convert it to English month name.
-- If no month is clearly mentioned, default to ["March"].
-- Names can be Chinese or English.
-- Gender may appear as 男, 女, male, female, m, f.
-- For phrases like "me and my wife/husband/friend", do not invent the sender's name if it is not explicitly stated. Leave it blank.
-- For cancellation, people can be [] if the sender does not repeat their details.
+1. If one message contains both cancellation and registration, return multiple actions in order.
+   Example: "敏儿不能去了，换美玲" =>
+   first action cancellation for 敏儿,
+   second action registration for 美玲.
+2. For cancellation, include people names whenever possible.
+3. If no day is mentioned for registration, leave sat/sun null.
+4. If one phone number appears and multiple people are listed, attach that same phone to all people.
+5. If the message is just testing and not a real registration, return type "other".
+6. Support Chinese and English.
+7. Event months should be normalized to English month names when possible.
+8. If cancellation has no identifiable name, leave people as [].
+9. If a single named person appears in a cancellation sentence, include that name.
+10. Never invent names or events not present in the message.
 
 Message:
-${message.body}`
-    });
+${messageText}
+`.trim();
 
-    const result = response.output_text;
-    console.log('AI extraction:', result);
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${OPENAI_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: "gpt-4o-mini",
+      temperature: 0,
+      messages: [
+        { role: "system", content: "You extract structured JSON from registration messages." },
+        { role: "user", content: prompt },
+      ],
+    }),
+  });
 
-    const cleaned = result
-      .replace(/```json\s*/i, '')
-      .replace(/```/g, '')
-      .trim();
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`OpenAI API error: ${response.status} ${errText}`);
+  }
 
-    const data = JSON.parse(cleaned);
+  const data = await response.json();
+  const content = data?.choices?.[0]?.message?.content || "";
+  const cleaned = stripCodeFences(content);
 
-    let events = detectEventsFromMessage(message.body);
+  try {
+    return JSON.parse(cleaned);
+  } catch (err) {
+    console.error("Failed to parse AI JSON:", cleaned);
+    throw err;
+  }
+}
 
-    if (!Array.isArray(events) || events.length === 0) {
-      if (Array.isArray(data.events) && data.events.length > 0) {
-        events = data.events.map((e) => normalizeEvent(e));
-      } else {
-        events = ['March'];
+function buildRegistrationRows({ action, senderWA, senderPhone, messageText, existingRows }) {
+  const rowsToAdd = [];
+  const events = (action.events || []).map(normalizeEvent).filter(Boolean);
+  let people = dedupePeople(action.people || []).filter((p) => (p.name || "").trim());
+
+  if (!events.length || !people.length) {
+    return rowsToAdd;
+  }
+
+  const sharedPhone = inferSharedPhone(people);
+
+  for (const person of people) {
+    const name = (person.name || "").trim();
+    const phone = (person.phone || sharedPhone || "").trim();
+    const gender = normalizeGender(person.gender || "");
+    const sat = normalizeYesNo(person.sat, "YES");
+    const sun = normalizeYesNo(person.sun, "YES");
+
+    for (const event of events) {
+      const duplicate = existingRows.some((r) =>
+        String(r.Event).trim() === event &&
+        String(r.Name).trim() === name &&
+        String(r.Sender_phone).trim() === senderPhone
+      );
+
+      if (duplicate) {
+        console.log(`Duplicate skipped: ${event} | ${name} | ${senderPhone}`);
+        continue;
       }
+
+      rowsToAdd.push([
+        getTimestamp(),   // Timestamp
+        event,            // Event
+        senderWA,         // SenderWA
+        name,             // Name
+        phone,            // Phone
+        gender,           // Gender
+        sat,              // Sat
+        sun,              // Sun
+        senderPhone,      // Sender_phone
+      ]);
     }
+  }
 
-    events = [...new Set(events.map((e) => normalizeEvent(e)))];
+  return rowsToAdd;
+}
 
-    const dayResult = detectDaysFromMessage(message.body);
-    const sat = dayResult.sat;
-    const sun = dayResult.sun;
+function findRowsForCancellation({ action, senderPhone, existingRows }) {
+  const events = (action.events || []).map(normalizeEvent).filter(Boolean);
+  const people = (action.people || []).filter((p) => (p.name || "").trim());
 
-    if (data.intent === 'registration' && Array.isArray(data.people) && data.people.length > 0) {
-      let cleanedPeople = data.people.map((person) => ({
-        name: String(person.name || '').trim(),
-        phone: String(person.phone || '').trim(),
-        gender: normalizeGender(person.gender || '')
-      }));
+  if (!events.length) {
+    console.log("Cancellation skipped: no event identified.");
+    return [];
+  }
 
-      cleanedPeople = enrichPeopleFromRelationship(cleanedPeople, message.body);
+  if (!people.length) {
+    console.log("Cancellation skipped: no person identified.");
+    return [];
+  }
 
-      const validPeople = cleanedPeople.filter((person) => !isBlank(person.name));
-      const missingPeople = cleanedPeople.filter((person) => isBlank(person.name));
+  const rowsToDelete = [];
 
-      let addedCount = 0;
+  for (const event of events) {
+    for (const person of people) {
+      const targetName = (person.name || "").trim();
+      const targetPhone = (person.phone || "").trim();
 
-      for (const event of events) {
-        for (const person of validPeople) {
-          const added = await addRowIfNotExists(
-            event,
-            sender,
-            person.name,
-            person.phone,
-            normalizeGender(person.gender),
-            sat,
-            sun
-          );
+      let matches = existingRows.filter((r) =>
+        String(r.Event).trim() === event &&
+        String(r.Name).trim() === targetName
+      );
 
-          if (added) addedCount++;
+      if (targetPhone) {
+        const phoneMatches = matches.filter((r) => String(r.Phone).trim() === targetPhone);
+        if (phoneMatches.length > 0) {
+          matches = phoneMatches;
+        }
+      } else {
+        const senderMatches = matches.filter((r) => String(r.Sender_phone).trim() === senderPhone);
+        if (senderMatches.length > 0) {
+          matches = senderMatches;
         }
       }
 
-      if (missingPeople.length > 0) {
-        pendingRegistrations.set(sender, {
-          events,
-          sat,
-          sun,
-          people: missingPeople
+      if (matches.length === 1) {
+        rowsToDelete.push(matches[0].rowNumber);
+      } else if (matches.length === 0) {
+        console.log(`No cancellation match found for ${event} | ${targetName}`);
+      } else {
+        console.log(`Ambiguous cancellation skipped for ${event} | ${targetName}. Matches: ${matches.length}`);
+      }
+    }
+  }
+
+  return [...new Set(rowsToDelete)];
+}
+
+// =========================
+// MAIN MESSAGE HANDLER
+// =========================
+client.on("message", async (msg) => {
+  try {
+    if (!msg || !msg.body) return;
+    if (msg.from === "status@broadcast") return;
+
+    const messageText = msg.body.trim();
+    const senderWA = getSenderWA(msg);
+    const senderPhone = getSenderPhone(msg);
+
+    console.log("Message received:", messageText);
+    console.log("SenderWA:", senderWA);
+    console.log("Sender_phone:", senderPhone);
+
+    if (isTestOnlyMessage(messageText)) {
+      console.log("Testing message detected. No sheet action taken.");
+      return;
+    }
+
+    const extraction = await callOpenAIForExtraction(messageText);
+    console.log("AI extraction:", JSON.stringify(extraction, null, 2));
+
+    const actions = Array.isArray(extraction.actions) ? extraction.actions : [];
+
+    if (!actions.length) {
+      console.log("No actions extracted.");
+      return;
+    }
+
+    let { rows: existingRows } = await getSheetRows();
+
+    let totalAdded = 0;
+    let totalDeleted = 0;
+
+    for (const action of actions) {
+      const type = String(action.type || "").toLowerCase();
+
+      if (type === "registration") {
+        const rowsToAdd = buildRegistrationRows({
+          action,
+          senderWA,
+          senderPhone,
+          messageText,
+          existingRows,
         });
 
-        console.log('Registration has missing names. Waiting for follow-up message.');
-      }
+        if (rowsToAdd.length) {
+          await appendRows(rowsToAdd);
+          totalAdded += rowsToAdd.length;
 
-      if (addedCount > 0) {
-        console.log(`Added ${addedCount} new row(s) to Google Sheet.`);
-      }
+          const latest = await getSheetRows();
+          existingRows = latest.rows;
+        } else {
+          console.log("No registration rows added.");
+        }
+      } else if (type === "cancellation") {
+        const rowsToDelete = findRowsForCancellation({
+          action,
+          senderPhone,
+          existingRows,
+        });
 
-      if (addedCount === 0 && missingPeople.length === 0) {
-        console.log('Registration detected but nothing new was added.');
-      }
-    } else if (data.intent === 'cancellation') {
-      const deletedCount = await deleteAllRowsBySenderAndEvents(sender, events);
+        if (rowsToDelete.length) {
+          await deleteRowsByNumber(rowsToDelete);
+          totalDeleted += rowsToDelete.length;
 
-      pendingRegistrations.delete(sender);
-
-      if (deletedCount > 0) {
-        console.log(`Registration removed from Google Sheet. Deleted ${deletedCount} row(s).`);
+          const latest = await getSheetRows();
+          existingRows = latest.rows;
+        } else {
+          console.log("No cancellation rows deleted.");
+        }
+      } else if (type === "update") {
+        console.log("Update intent detected. Not implemented yet. No action taken.");
       } else {
-        console.log('Cancellation detected, but no matching registration found.');
+        console.log("Other / non-action message detected. No sheet action taken.");
       }
-    } else {
-      console.log('Not a registration or cancellation message.');
     }
-  } catch (err) {
-    console.log('Error:', err.message);
+
+    console.log(`Done. Added: ${totalAdded}, Deleted: ${totalDeleted}`);
+  } catch (error) {
+    console.error("Error:", error);
   }
 });
 
-console.log('NEW CODE VERSION LOADED');
 client.initialize();
-
