@@ -80,7 +80,17 @@ function getSenderWA(msg) {
 }
 
 function getSenderPhone(msg) {
+  if (msg.from && msg.from.endsWith("@g.us")) {
+    return (msg.author || "").split("@")[0];
+  }
   return (msg.from || "").split("@")[0];
+}
+
+function getSenderWA(msg) {
+  if (msg.from && msg.from.endsWith("@g.us")) {
+    return msg.author || "";
+  }
+  return msg.from || "";
 }
 
 function stripCodeFences(text) {
@@ -511,4 +521,5 @@ client.on("message", async (msg) => {
 });
 
 client.initialize();
+
 
