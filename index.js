@@ -1,4 +1,4 @@
-require("dotenv").config();
+
 
 const { Client, LocalAuth } = require("whatsapp-web.js");
 const { google } = require("googleapis");
@@ -511,3 +511,4 @@ client.on("message", async (msg) => {
 });
 
 client.initialize();
+
