@@ -592,7 +592,19 @@ console.log("Updated draft:", JSON.stringify(draft, null, 2));
     console.log("No actions extracted and no usable draft.");
     return;
   }
+    
+let finalActions = [...actions];
 
+const hasDraftName = draft.people.some((p) => (p.name || "").trim());
+
+if (draft.event && hasDraftName) {
+  finalActions.push({
+    type: "registration",
+    events: [draft.event],
+    people: draft.people
+  });
+}
+    
     let { rows: existingRows } = await getSheetRows();
 
     let totalAdded = 0;
@@ -649,6 +661,7 @@ console.log("Updated draft:", JSON.stringify(draft, null, 2));
 });
 
 client.initialize();
+
 
 
 
