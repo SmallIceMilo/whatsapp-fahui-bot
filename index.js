@@ -610,7 +610,7 @@ if (draft.event && hasDraftName) {
     let totalAdded = 0;
     let totalDeleted = 0;
 
-    for (const action of actions) {
+    for (const action of finalActions) {
       const type = String(action.type || "").toLowerCase();
 
       if (type === "registration") {
@@ -661,6 +661,7 @@ if (draft.event && hasDraftName) {
 });
 
 client.initialize();
+
 
 
 
