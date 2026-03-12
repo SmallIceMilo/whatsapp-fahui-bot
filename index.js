@@ -588,10 +588,10 @@ if (!nameMatch && !phoneMatch && genderMatch && draft.people.length) {
 
 console.log("Updated draft:", JSON.stringify(draft, null, 2));
 
-    if (!actions.length) {
-      console.log("No actions extracted.");
-      return;
-    }
+    if (!actions.length && !(draft.event && draft.people.length)) {
+    console.log("No actions extracted and no usable draft.");
+    return;
+  }
 
     let { rows: existingRows } = await getSheetRows();
 
@@ -649,6 +649,7 @@ console.log("Updated draft:", JSON.stringify(draft, null, 2));
 });
 
 client.initialize();
+
 
 
 
