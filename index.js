@@ -36,15 +36,6 @@ const sheets = google.sheets({ version: "v4", auth });
 // =========================
 // WHATSAPP CLIENT
 // =========================
-const { execSync } = require("child_process");
-
-try {
-  console.log("which chromium:", execSync("which chromium || true").toString().trim());
-  console.log("which chromium-browser:", execSync("which chromium-browser || true").toString().trim());
-  console.log("ls /usr/bin | grep chrom:", execSync("ls /usr/bin | grep chrom || true").toString().trim());
-} catch (e) {
-  console.log("Could not detect chromium path");
-}
 
 const client = new Client({
   authStrategy: new LocalAuth({
@@ -681,6 +672,7 @@ if (draft.event && hasDraftName) {
 });
 
 client.initialize();
+
 
 
 
