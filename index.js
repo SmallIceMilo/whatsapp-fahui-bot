@@ -520,6 +520,48 @@ client.on("message", async (msg) => {
     const extraction = await callOpenAIForExtraction(messageText);
     console.log("AI extraction:", JSON.stringify(extraction, null, 2));
 
+    // Manual follow-up extraction for multi-message registration
+const nameMatch = messageText.match(/姓名[:：]?\s*([^\n]+)/);
+const phoneMatch = messageText.match(/(电话|手机号|电话号码)[:：]?\s*(\d{7,})/);
+const genderMatch = messageText.match(/(男|女)/);
+
+if (nameMatch) {
+  const extractedName = nameMatch[1].trim();
+
+  if (!draft.people.length) {
+    draft.people.push({
+      name: extractedName,
+      phone: "",
+      gender: genderMatch ? (genderMatch[1] === "男" ? "Male" : "Female") : ""
+    });
+  } else {
+    draft.people[draft.people.length - 1].name = extractedName;
+    if (genderMatch) {
+      draft.people[draft.people.length - 1].gender =
+        genderMatch[1] === "男" ? "Male" : "Female";
+    }
+  }
+}
+
+if (phoneMatch) {
+  const extractedPhone = phoneMatch[2];
+
+  if (!draft.people.length) {
+    draft.people.push({
+      name: "",
+      phone: extractedPhone,
+      gender: genderMatch ? (genderMatch[1] === "男" ? "Male" : "Female") : ""
+    });
+  } else {
+    draft.people[draft.people.length - 1].phone = extractedPhone;
+  }
+}
+
+if (!nameMatch && !phoneMatch && genderMatch && draft.people.length) {
+  draft.people[draft.people.length - 1].gender =
+    genderMatch[1] === "男" ? "Male" : "Female";
+}
+
     const actions = Array.isArray(extraction.actions) ? extraction.actions : [];
 
     if (!actions.length) {
@@ -583,6 +625,7 @@ client.on("message", async (msg) => {
 });
 
 client.initialize();
+
 
 
 
