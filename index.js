@@ -79,7 +79,12 @@ function getSenderPhone(msg) {
   if (msg.from && msg.from.endsWith("@g.us")) {
     return (msg.author || "").split("@")[0];
   }
-  return (msg.from || "").split("@")[0];
+
+  if (msg.from && msg.from.endsWith("@c.us")) {
+    return (msg.from || "").split("@")[0];
+  }
+
+  return "";
 }
 
 function getSenderWA(msg) {
@@ -578,6 +583,7 @@ client.on("message", async (msg) => {
 });
 
 client.initialize();
+
 
 
 
