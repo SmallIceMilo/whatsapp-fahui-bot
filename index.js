@@ -628,8 +628,12 @@ if (draft.event && hasDraftName) {
 
           const latest = await getSheetRows();
           existingRows = latest.rows;
+
+          delete pendingRegistrations[senderKey];
         } else {
           console.log("No registration rows added.");
+        }
+        
         }
       } else if (type === "cancellation") {
         const rowsToDelete = findRowsForCancellation({
@@ -661,6 +665,7 @@ if (draft.event && hasDraftName) {
 });
 
 client.initialize();
+
 
 
 
