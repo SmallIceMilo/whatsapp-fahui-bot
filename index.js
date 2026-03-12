@@ -1,5 +1,5 @@
 
-
+const pendingRegistrations = {};
 const { Client, LocalAuth } = require("whatsapp-web.js");
 const { google } = require("googleapis");
 
@@ -492,12 +492,24 @@ client.on("message", async (msg) => {
     if (msg.from === "status@broadcast") return;
 
     const messageText = msg.body.trim();
-    const senderWA = getSenderWA(msg);
-    const senderPhone = getSenderPhone(msg);
+  const senderWA = getSenderWA(msg);
+  const senderPhone = getSenderPhone(msg);
+  const senderKey = senderWA || senderPhone;
 
-    console.log("Message received:", messageText);
-    console.log("SenderWA:", senderWA);
-    console.log("Sender_phone:", senderPhone);
+  if (!pendingRegistrations[senderKey]) {
+    pendingRegistrations[senderKey] = {
+      event: null,
+      people: []
+    };
+  }
+
+  let draft = pendingRegistrations[senderKey];
+
+  console.log("Message received:", messageText);
+  console.log("SenderWA:", senderWA);
+  console.log("Sender_phone:", senderPhone);
+  console.log("SenderKey:", senderKey);
+  console.log("Current draft:", JSON.stringify(draft, null, 2));
 
     if (isTestOnlyMessage(messageText)) {
       console.log("Testing message detected. No sheet action taken.");
@@ -570,6 +582,7 @@ client.on("message", async (msg) => {
 });
 
 client.initialize();
+
 
 
 
