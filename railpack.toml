@@ -1,5 +1,6 @@
 [phases.setup]
 aptPkgs = [
+  "chromium-browser",
   "libglib2.0-0",
   "libnss3",
   "libatk1.0-0",
@@ -21,7 +22,6 @@ aptPkgs = [
   "libxcb1",
   "libxext6",
   "libxfixes3",
-  "ca-certificates",
   "fonts-liberation"
 ]
 
