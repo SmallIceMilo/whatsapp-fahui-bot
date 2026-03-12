@@ -564,6 +564,30 @@ if (!nameMatch && !phoneMatch && genderMatch && draft.people.length) {
 
     const actions = Array.isArray(extraction.actions) ? extraction.actions : [];
 
+    for (const action of actions) {
+  const type = String(action.type || "").toLowerCase();
+
+  if (type === "registration") {
+    if (action.events && action.events.length > 0) {
+      draft.event = normalizeEvent(action.events[0]);
+    }
+
+    if (action.people && action.people.length > 0) {
+      for (const p of action.people) {
+        if (!p.name && !p.phone && !p.gender) continue;
+
+        draft.people.push({
+          name: p.name || "",
+          phone: p.phone || "",
+          gender: normalizeGender(p.gender || "")
+        });
+      }
+    }
+  }
+}
+
+console.log("Updated draft:", JSON.stringify(draft, null, 2));
+
     if (!actions.length) {
       console.log("No actions extracted.");
       return;
@@ -625,6 +649,7 @@ if (!nameMatch && !phoneMatch && genderMatch && draft.people.length) {
 });
 
 client.initialize();
+
 
 
 
