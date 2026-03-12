@@ -75,10 +75,6 @@ function getTimestamp() {
   return new Date().toISOString();
 }
 
-function getSenderWA(msg) {
-  return msg.from || "";
-}
-
 function getSenderPhone(msg) {
   if (msg.from && msg.from.endsWith("@g.us")) {
     return (msg.author || "").split("@")[0];
@@ -582,6 +578,7 @@ client.on("message", async (msg) => {
 });
 
 client.initialize();
+
 
 
 
