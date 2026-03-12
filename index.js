@@ -119,7 +119,46 @@ function normalizeYesNo(value, defaultValue = "YES") {
   const v = String(value).trim().toLowerCase();
   if (["yes", "y", "true", "去", "会去"].includes(v)) return "YES";
   if (["no", "n", "false", "不去", "不会去"].includes(v)) return "NO";
+
   return defaultValue;
+}
+
+function detectDaysFromMessage(messageText) {
+  const text = String(messageText || "").toLowerCase();
+
+  const hasSat =
+    text.includes("sat") ||
+    text.includes("saturday") ||
+    text.includes("星期六") ||
+    text.includes("周六") ||
+    text.includes("礼拜六") ||
+    text.includes("禮拜六");
+
+  const hasSun =
+    text.includes("sun") ||
+    text.includes("sunday") ||
+    text.includes("星期日") ||
+    text.includes("星期天") ||
+    text.includes("周日") ||
+    text.includes("周天") ||
+    text.includes("礼拜天") ||
+    text.includes("礼拜日") ||
+    text.includes("禮拜天") ||
+    text.includes("禮拜日");
+
+  if (hasSat && !hasSun) {
+    return { sat: "YES", sun: "NO" };
+  }
+
+  if (!hasSat && hasSun) {
+    return { sat: "NO", sun: "YES" };
+  }
+
+  if (hasSat && hasSun) {
+    return { sat: "YES", sun: "YES" };
+  }
+
+  return { sat: "YES", sun: "YES" };
 }
 
 function normalizeEvent(event) {
@@ -347,19 +386,29 @@ function buildRegistrationRows({ action, senderWA, senderPhone, messageText, exi
 
   const sharedPhone = inferSharedPhone(people);
 
+  const fallbackDays = detectDaysFromMessage(messageText);
+
   for (const person of people) {
     const name = (person.name || "").trim();
     const phone = (person.phone || sharedPhone || "").trim();
     const gender = normalizeGender(person.gender || "");
-    const sat = normalizeYesNo(person.sat, "YES");
-    const sun = normalizeYesNo(person.sun, "YES");
+
+    const sat =
+      person.sat === true ? "YES" :
+      person.sat === false ? "NO" :
+      fallbackDays.sat;
+
+    const sun =
+      person.sun === true ? "YES" :
+      person.sun === false ? "NO" :
+      fallbackDays.sun;
 
     for (const event of events) {
       const duplicate = existingRows.some((r) =>
         String(r.Event).trim() === event &&
         String(r.Name).trim() === name &&
         String(r.Sender_phone).trim() === senderPhone
-      );
+    );
 
       if (duplicate) {
         console.log(`Duplicate skipped: ${event} | ${name} | ${senderPhone}`);
@@ -521,5 +570,6 @@ client.on("message", async (msg) => {
 });
 
 client.initialize();
+
 
 
