@@ -611,52 +611,53 @@ if (draft.event && hasDraftName) {
     let totalDeleted = 0;
 
     for (const action of finalActions) {
-      const type = String(action.type || "").toLowerCase();
+  const type = String(action.type || "").toLowerCase();
 
-      if (type === "registration") {
-        const rowsToAdd = buildRegistrationRows({
-          action,
-          senderWA,
-          senderPhone,
-          messageText,
-          existingRows,
-        });
+  if (type === "registration") {
+    const rowsToAdd = buildRegistrationRows({
+      action,
+      senderWA,
+      senderPhone,
+      messageText,
+      existingRows,
+    });
 
-        if (rowsToAdd.length) {
-          await appendRows(rowsToAdd);
-          totalAdded += rowsToAdd.length;
+    if (rowsToAdd.length) {
+      await appendRows(rowsToAdd);
+      totalAdded += rowsToAdd.length;
 
-          const latest = await getSheetRows();
-          existingRows = latest.rows;
+      const latest = await getSheetRows();
+      existingRows = latest.rows;
 
-          delete pendingRegistrations[senderKey];
-        } else {
-          console.log("No registration rows added.");
-        }
-        
-        }
-      } else if (type === "cancellation") {
-        const rowsToDelete = findRowsForCancellation({
-          action,
-          senderPhone,
-          existingRows,
-        });
-
-        if (rowsToDelete.length) {
-          await deleteRowsByNumber(rowsToDelete);
-          totalDeleted += rowsToDelete.length;
-
-          const latest = await getSheetRows();
-          existingRows = latest.rows;
-        } else {
-          console.log("No cancellation rows deleted.");
-        }
-      } else if (type === "update") {
-        console.log("Update intent detected. Not implemented yet. No action taken.");
-      } else {
-        console.log("Other / non-action message detected. No sheet action taken.");
-      }
+      delete pendingRegistrations[senderKey];
+    } else {
+      console.log("No registration rows added.");
     }
+
+  } else if (type === "cancellation") {
+    const rowsToDelete = findRowsForCancellation({
+      action,
+      senderPhone,
+      existingRows,
+    });
+
+    if (rowsToDelete.length) {
+      await deleteRowsByNumber(rowsToDelete);
+      totalDeleted += rowsToDelete.length;
+
+      const latest = await getSheetRows();
+      existingRows = latest.rows;
+    } else {
+      console.log("No cancellation rows deleted.");
+    }
+
+  } else if (type === "update") {
+    console.log("Update intent detected. Not implemented yet. No action taken.");
+
+  } else {
+    console.log("Other / non-action message detected. No sheet action taken.");
+  }
+}
 
     console.log(`Done. Added: ${totalAdded}, Deleted: ${totalDeleted}`);
   } catch (error) {
@@ -665,6 +666,7 @@ if (draft.event && hasDraftName) {
 });
 
 client.initialize();
+
 
 
 
