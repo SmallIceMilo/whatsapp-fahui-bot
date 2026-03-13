@@ -378,6 +378,7 @@ Rules:
 8. If cancellation has no identifiable name, leave people as [].
 9. If a single named person appears in a cancellation sentence, include that name.
 10. Never invent names or events not present in the message.
+11. Preserve names exactly as written. Do not translate Chinese names into English.
 
 Message:
 ${messageText}
@@ -712,6 +713,7 @@ if ((draft.events || []).length && hasDraftName) {
 });
 
 client.initialize();
+
 
 
 
