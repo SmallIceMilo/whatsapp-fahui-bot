@@ -505,7 +505,7 @@ client.on("message", async (msg) => {
 
   if (!pendingRegistrations[senderKey]) {
     pendingRegistrations[senderKey] = {
-      event: null,
+      events: [],
       people: []
     };
   }
@@ -672,6 +672,7 @@ if (draft.event && hasDraftName) {
 });
 
 client.initialize();
+
 
 
 
