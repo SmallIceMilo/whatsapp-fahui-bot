@@ -604,11 +604,16 @@ if (!nameMatch && !phoneMatch && genderMatch && draft.people.length) {
   const type = String(action.type || "").toLowerCase();
 
   if (type === "registration") {
-    if (action.events && action.events.length > 0) {
-      draft.event = normalizeEvent(action.events[0]);
-    }
+    const extractedEvents =
+      action.events && action.events.length > 0
+        ? action.events.map(normalizeEvent).filter(Boolean)
+        : detectEventsFromMessage(messageText);
 
-    if (action.people && action.people.length > 0) {
+  if (extractedEvents.length > 0) {
+    draft.events = [...new Set([...(draft.events || []), ...extractedEvents])];
+  }
+
+  if (action.people && action.people.length > 0) {
       for (const p of action.people) {
         if (!p.name && !p.phone && !p.gender) continue;
 
@@ -702,6 +707,7 @@ if (draft.event && hasDraftName) {
 });
 
 client.initialize();
+
 
 
 
