@@ -638,10 +638,10 @@ let finalActions = [...actions];
 
 const hasDraftName = draft.people.some((p) => (p.name || "").trim());
 
-if (draft.event && hasDraftName) {
+if ((draft.events || []).length && hasDraftName) {
   finalActions.push({
     type: "registration",
-    events: [draft.event],
+    events: draft.events,
     people: draft.people
   });
 }
@@ -707,6 +707,7 @@ if (draft.event && hasDraftName) {
 });
 
 client.initialize();
+
 
 
 
