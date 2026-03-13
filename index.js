@@ -627,6 +627,7 @@ if (!nameMatch && !phoneMatch && genderMatch && draft.people.length) {
   }
 }
 
+draft.people = dedupePeople(draft.people);
 console.log("Updated draft:", JSON.stringify(draft, null, 2));
 
   if (!actions.length && !((draft.events || []).length && draft.people.length)) {
@@ -707,6 +708,7 @@ if ((draft.events || []).length && hasDraftName) {
 });
 
 client.initialize();
+
 
 
 
