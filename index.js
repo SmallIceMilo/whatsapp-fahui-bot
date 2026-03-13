@@ -218,6 +218,35 @@ function detectEventsFromMessage(messageText) {
   const text = String(messageText || "").toLowerCase();
   const events = [];
 
+  const monthPatterns = [
+    { month: "January", num: 1, en: ["january", "jan"], zh: ["一月", "1月"] },
+    { month: "February", num: 2, en: ["february", "feb"], zh: ["二月", "2月"] },
+    { month: "March", num: 3, en: ["march", "mar"], zh: ["三月", "3月"] },
+    { month: "April", num: 4, en: ["april", "apr"], zh: ["四月", "4月"] },
+    { month: "May", num: 5, en: ["may"], zh: ["五月", "5月"] },
+    { month: "June", num: 6, en: ["june", "jun"], zh: ["六月", "6月"] },
+    { month: "July", num: 7, en: ["july", "jul"], zh: ["七月", "7月"] },
+    { month: "August", num: 8, en: ["august", "aug"], zh: ["八月", "8月"] },
+    { month: "September", num: 9, en: ["september", "sep", "sept"], zh: ["九月", "9月"] },
+    { month: "October", num: 10, en: ["october", "oct"], zh: ["十月", "10月"] },
+    { month: "November", num: 11, en: ["november", "nov"], zh: ["十一月", "11月"] },
+    { month: "December", num: 12, en: ["december", "dec"], zh: ["十二月", "12月"] }
+  ];
+
+  for (const m of monthPatterns) {
+    const hasEnglish = m.en.some(k => text.includes(k));
+    const hasChinese = m.zh.some(k => text.includes(k));
+    const hasSlashPrefix = new RegExp(`(^|[^0-9])${m.num}\\/\\d+`).test(text);
+    const hasSlashSuffix = new RegExp(`\\d+\\/${m.num}(?!\\d)`).test(text);
+
+    if (hasEnglish || hasChinese || hasSlashPrefix || hasSlashSuffix) {
+      events.push(m.month);
+    }
+  }
+
+  return [...new Set(events)];
+}
+
   if (
     text.includes("march") ||
     text.includes("mar") ||
@@ -708,6 +737,7 @@ if ((draft.events || []).length && hasDraftName) {
 });
 
 client.initialize();
+
 
 
 
