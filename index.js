@@ -247,31 +247,6 @@ function detectEventsFromMessage(messageText) {
   return [...new Set(events)];
 }
 
-  if (
-    text.includes("march") ||
-    text.includes("mar") ||
-    text.includes("三月") ||
-    /(^|[^0-9])3月/.test(text) ||
-    /(^|[^0-9])3\/\d+/.test(text) ||
-    /\d+\/3(?!\d)/.test(text)
-  ) {
-    events.push("March");
-  }
-
-  if (
-    text.includes("april") ||
-    text.includes("apr") ||
-    text.includes("四月") ||
-    /(^|[^0-9])4月/.test(text) ||
-    /(^|[^0-9])4\/\d+/.test(text) ||
-    /\d+\/4(?!\d)/.test(text)
-  ) {
-    events.push("April");
-  }
-
-  return [...new Set(events)];
-}
-
 
 function isTestOnlyMessage(text) {
   const t = String(text || "").trim().toLowerCase();
@@ -737,6 +712,7 @@ if ((draft.events || []).length && hasDraftName) {
 });
 
 client.initialize();
+
 
 
 
