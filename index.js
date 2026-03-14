@@ -1,4 +1,4 @@
-const pendingRegistrations = {};
+const pendingContexts = {};
 const { Client, LocalAuth } = require("whatsapp-web.js");
 const { google } = require("googleapis");
 
@@ -117,19 +117,7 @@ function normalizeGender(gender) {
 
   if (["m", "male", "man", "boy", "男"].includes(g)) return "Male";
   if (["f", "female", "woman", "girl", "女"].includes(g)) return "Female";
-  return gender;
-}
-
-function normalizeYesNo(value, defaultValue = "YES") {
-  if (value === true) return "YES";
-  if (value === false) return "NO";
-  if (value == null || value === "") return defaultValue;
-
-  const v = String(value).trim().toLowerCase();
-  if (["yes", "y", "true", "去", "会去"].includes(v)) return "YES";
-  if (["no", "n", "false", "不去", "不会去"].includes(v)) return "NO";
-
-  return defaultValue;
+  return String(gender).trim();
 }
 
 function normalizeEvent(event) {
@@ -175,167 +163,46 @@ function normalizeEvent(event) {
     "十二月": "December",
   };
 
-  return map[e] || event;
+  return map[e] || String(event).trim();
 }
 
-function monthNameToNumber(monthName) {
-  const map = {
-    January: 1,
-    February: 2,
-    March: 3,
-    April: 4,
-    May: 5,
-    June: 6,
-    July: 7,
-    August: 8,
-    September: 9,
-    October: 10,
-    November: 11,
-    December: 12,
-  };
-  return map[monthName] || null;
+function monthNameFromIsoDate(isoDate) {
+  if (!isoDate) return "";
+  const d = new Date(isoDate);
+  if (Number.isNaN(d.getTime())) return "";
+
+  const months = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+  ];
+
+  return months[d.getMonth()];
 }
 
-function getWeekdayFromDateParts(year, month, day) {
-  const d = new Date(year, month - 1, day);
-  if (Number.isNaN(d.getTime())) return null;
-  return d.getDay(); // 0=Sun, 6=Sat
-}
+function getSatSunFromIsoDate(isoDate) {
+  if (!isoDate) return { sat: "YES", sun: "YES" };
 
-function extractMonthDayPairs(messageText, fallbackEvents = []) {
-  const text = String(messageText || "");
-  const pairs = [];
+  const d = new Date(`${isoDate}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return { sat: "YES", sun: "YES" };
 
-  // Chinese style: 3月22日
-  const zhMatches = [...text.matchAll(/(\d{1,2})\s*月\s*(\d{1,2})\s*日/g)];
-  for (const match of zhMatches) {
-    const month = Number(match[1]);
-    const day = Number(match[2]);
-    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
-      pairs.push({ month, day });
-    }
-  }
+  const weekday = d.getDay(); // 0=Sun, 6=Sat
 
-  // slash style: 3/22 or 22/3
-  const slashMatches = [...text.matchAll(/(\d{1,2})\/(\d{1,2})/g)];
-  for (const match of slashMatches) {
-    const a = Number(match[1]);
-    const b = Number(match[2]);
-
-    if (a >= 1 && a <= 12 && b >= 1 && b <= 31) {
-      pairs.push({ month: a, day: b });
-    } else if (b >= 1 && b <= 12 && a >= 1 && a <= 31) {
-      pairs.push({ month: b, day: a });
-    }
-  }
-
-  // If only day is mentioned like "22日", try using detected event month
-  const dayOnlyMatches = [...text.matchAll(/(\d{1,2})\s*日/g)];
-  if (pairs.length === 0 && fallbackEvents.length > 0 && dayOnlyMatches.length > 0) {
-    const month = monthNameToNumber(fallbackEvents[0]);
-    if (month) {
-      for (const match of dayOnlyMatches) {
-        const day = Number(match[1]);
-        if (day >= 1 && day <= 31) {
-          pairs.push({ month, day });
-        }
-      }
-    }
-  }
-
-  return pairs;
-}
-
-function detectDaysFromMessage(messageText, events = []) {
-  const text = String(messageText || "").toLowerCase();
-
-  const hasSatWord =
-    text.includes("sat") ||
-    text.includes("saturday") ||
-    text.includes("星期六") ||
-    text.includes("周六") ||
-    text.includes("礼拜六") ||
-    text.includes("禮拜六");
-
-  const hasSunWord =
-    text.includes("sun") ||
-    text.includes("sunday") ||
-    text.includes("星期日") ||
-    text.includes("星期天") ||
-    text.includes("周日") ||
-    text.includes("周天") ||
-    text.includes("礼拜天") ||
-    text.includes("礼拜日") ||
-    text.includes("禮拜天") ||
-    text.includes("禮拜日");
-
-  if (hasSatWord && !hasSunWord) {
-    return { sat: "YES", sun: "NO" };
-  }
-
-  if (!hasSatWord && hasSunWord) {
-    return { sat: "NO", sun: "YES" };
-  }
-
-  if (hasSatWord && hasSunWord) {
-    return { sat: "YES", sun: "YES" };
-  }
-
-  // If no explicit sat/sun words, infer from real date
-  const pairs = extractMonthDayPairs(messageText, events);
-  if (pairs.length > 0) {
-    const year = getCurrentYear();
-
-    // If any detected date is Sunday => Sun YES
-    // If any detected date is Saturday => Sat YES
-    let sat = "NO";
-    let sun = "NO";
-
-    for (const pair of pairs) {
-      const weekday = getWeekdayFromDateParts(year, pair.month, pair.day);
-      if (weekday === 6) sat = "YES";
-      if (weekday === 0) sun = "YES";
-    }
-
-    if (sat === "YES" || sun === "YES") {
-      return { sat, sun };
-    }
-  }
+  if (weekday === 6) return { sat: "YES", sun: "NO" };
+  if (weekday === 0) return { sat: "NO", sun: "YES" };
 
   return { sat: "YES", sun: "YES" };
 }
 
-function detectEventsFromMessage(messageText) {
-  const text = String(messageText || "").toLowerCase();
-  const events = [];
+function normalizeYesNoFromBoolOrString(value, defaultValue = "YES") {
+  if (value === true) return "YES";
+  if (value === false) return "NO";
+  if (value == null || value === "") return defaultValue;
 
-  const monthPatterns = [
-    { month: "January", num: 1, en: ["january", "jan"], zh: ["一月", "1月"] },
-    { month: "February", num: 2, en: ["february", "feb"], zh: ["二月", "2月"] },
-    { month: "March", num: 3, en: ["march", "mar"], zh: ["三月", "3月"] },
-    { month: "April", num: 4, en: ["april", "apr"], zh: ["四月", "4月"] },
-    { month: "May", num: 5, en: ["may"], zh: ["五月", "5月"] },
-    { month: "June", num: 6, en: ["june", "jun"], zh: ["六月", "6月"] },
-    { month: "July", num: 7, en: ["july", "jul"], zh: ["七月", "7月"] },
-    { month: "August", num: 8, en: ["august", "aug"], zh: ["八月", "8月"] },
-    { month: "September", num: 9, en: ["september", "sep", "sept"], zh: ["九月", "9月"] },
-    { month: "October", num: 10, en: ["october", "oct"], zh: ["十月", "10月"] },
-    { month: "November", num: 11, en: ["november", "nov"], zh: ["十一月", "11月"] },
-    { month: "December", num: 12, en: ["december", "dec"], zh: ["十二月", "12月"] },
-  ];
+  const v = String(value).trim().toLowerCase();
+  if (["yes", "y", "true"].includes(v)) return "YES";
+  if (["no", "n", "false"].includes(v)) return "NO";
 
-  for (const m of monthPatterns) {
-    const hasEnglish = m.en.some((k) => new RegExp(`\\b${k}\\b`).test(text));
-    const hasChinese = m.zh.some((k) => text.includes(k)) || text.includes(`${m.num}月`);
-    const hasSlashPrefix = new RegExp(`(^|[^0-9])${m.num}\\/\\d+`).test(text);
-    const hasSlashSuffix = new RegExp(`\\d+\\/${m.num}(?!\\d)`).test(text);
-
-    if (hasEnglish || hasChinese || hasSlashPrefix || hasSlashSuffix) {
-      events.push(m.month);
-    }
-  }
-
-  return [...new Set(events)];
+  return defaultValue;
 }
 
 function isTestOnlyMessage(text) {
@@ -351,7 +218,13 @@ function dedupePeople(people) {
     const key = `${(p.name || "").trim()}|${(p.phone || "").trim()}|${(p.gender || "").trim()}`;
     if (!seen.has(key)) {
       seen.add(key);
-      result.push(p);
+      result.push({
+        name: (p.name || "").trim(),
+        phone: (p.phone || "").trim(),
+        gender: normalizeGender(p.gender || ""),
+        sat: p.sat,
+        sun: p.sun,
+      });
     }
   }
 
@@ -363,16 +236,32 @@ function inferSharedPhone(people) {
   return phones.length === 1 ? phones[0] : "";
 }
 
-function isDraftExpired(draft, maxMinutes = 30) {
-  if (!draft || !draft.updatedAt) return true;
-  return Date.now() - draft.updatedAt > maxMinutes * 60 * 1000;
+function isContextExpired(context, maxMinutes = 60) {
+  if (!context || !context.updatedAt) return true;
+  return Date.now() - context.updatedAt > maxMinutes * 60 * 1000;
 }
 
-function cleanupExpiredDraft(senderKey) {
-  const draft = pendingRegistrations[senderKey];
-  if (draft && isDraftExpired(draft)) {
-    delete pendingRegistrations[senderKey];
+function cleanupExpiredContext(senderKey) {
+  const context = pendingContexts[senderKey];
+  if (context && isContextExpired(context)) {
+    delete pendingContexts[senderKey];
   }
+}
+
+function getOrCreateContext(senderKey) {
+  cleanupExpiredContext(senderKey);
+
+  if (!pendingContexts[senderKey]) {
+    pendingContexts[senderKey] = {
+      lastPeople: [],
+      lastEvent: "",
+      lastEventDate: "",
+      lastActionType: "",
+      updatedAt: Date.now(),
+    };
+  }
+
+  return pendingContexts[senderKey];
 }
 
 async function getSheetRows() {
@@ -442,28 +331,31 @@ async function deleteRowsByNumber(rowNumbers) {
   return rowNumbers.length;
 }
 
-async function callOpenAIForExtraction(messageText, draft = {}) {
+async function callOpenAIForExtraction(messageText, context = {}) {
+  const currentYear = getCurrentYear();
+
   const prompt = `
-You are extracting structured registration data from WhatsApp messages.
+You extract registration actions from WhatsApp messages for event sign-ups.
 
 Return STRICT JSON only.
-Do not use markdown.
-Do not explain anything.
-Do not include any text outside JSON.
+No markdown.
+No explanation.
+No text outside JSON.
 
 Schema:
 {
   "actions": [
     {
       "type": "registration" | "cancellation" | "update" | "other",
-      "events": ["March"],
+      "event": "March",
+      "eventDate": "${currentYear}-03-22",
       "people": [
         {
-          "name": "杰夫",
-          "phone": "93298978",
-          "gender": "Male",
-          "sat": true,
-          "sun": false
+          "name": "蔡雅娇",
+          "phone": "96884298",
+          "gender": "Female",
+          "sat": false,
+          "sun": true
         }
       ]
     }
@@ -471,32 +363,28 @@ Schema:
 }
 
 Recent sender context:
-${JSON.stringify(draft || {}, null, 2)}
+${JSON.stringify(context, null, 2)}
 
 Rules:
-1. Extract all meaningful actions from the message.
-2. Support Chinese and English.
-3. Preserve names exactly as written. Do not translate names.
-4. If the message refers to earlier people, such as:
-   "以上三位", "上述三位", "这三位", "same people", "the above people",
-   use the people from Recent sender context.
-5. If the message refers to earlier event context, use it when clearly implied.
-6. Event months should be normalized to English month names when possible.
-7. If a registration message contains people but no clear event, return people and leave events empty.
-8. If a registration message contains event but no new people and refers to earlier people, reuse the earlier people from context.
-9. If no day is mentioned, set sat and sun to null.
-10. For cancellation, include person names whenever possible.
-11. If the message is only testing, return type "other".
-12. Do not invent people, names, or phone numbers.
-13. If gender is stated for all people, apply it to all relevant people.
-14. If the message says "以上三位要报名4月19日", that means the previously mentioned people should be registered for April.
-15. If one phone number is clearly attached to one person, keep it with that person only.
-16. If a message lists multiple people, extract all of them.
-17. Messages may contain numbered lists such as "2) name / English name / phone".
-18. Treat each numbered entry as a separate person.
-19. If a message says "全部女性", apply Female to all listed people.
-20. A date like "3月22日" means the month is March.
-21. A date like "4月19日" means the month is April.
+1. Support Chinese and English.
+2. Preserve names exactly as written. Do not translate names.
+3. Resolve references using Recent sender context, including:
+   "以上三位", "上述三位", "这三位", "same people", "the above people".
+4. If a message lists multiple people, extract all of them.
+5. Numbered entries like "2) name / phone" are separate people.
+6. If a message says "全部女性", apply Female to all listed people.
+7. Extract exact date whenever possible.
+8. If year is not stated, assume current year ${currentYear}.
+9. Set "event" to the English month name based on eventDate if a date exists.
+10. If the event date is a Saturday, set sat=true sun=false.
+11. If the event date is a Sunday, set sat=false sun=true.
+12. If date is not weekend-specific and no clear day info is given, set sat=null sun=null.
+13. If message is only testing, return type "other".
+14. For cancellation, include person names whenever possible.
+15. Do not invent names or phone numbers.
+16. If one phone number clearly belongs to one person, keep it with that person only.
+17. A message like "以上三位要报名4月19日" means reuse the people from context and register them for that date.
+18. If an action is registration, try hard to return both event and eventDate when date exists.
 
 Message:
 ${messageText}
@@ -515,7 +403,7 @@ ${messageText}
       messages: [
         {
           role: "system",
-          content: "You extract structured JSON from registration messages.",
+          content: "You are a precise JSON information extractor for event registration messages.",
         },
         {
           role: "user",
@@ -542,61 +430,76 @@ ${messageText}
   }
 }
 
-function buildRegistrationRows({ action, senderWA, senderPhone, messageText, existingRows }) {
+function buildRegistrationRows({ action, senderWA, senderPhone, existingRows }) {
   const rowsToAdd = [];
-  const events = (action.events || []).map(normalizeEvent).filter(Boolean);
   const people = dedupePeople(action.people || []).filter((p) => (p.name || "").trim());
 
-  if (!events.length || !people.length) {
+  let event = normalizeEvent(action.event || "");
+  const eventDate = (action.eventDate || "").trim();
+
+  if (!event && eventDate) {
+    event = monthNameFromIsoDate(eventDate);
+  }
+
+  if (!event || !people.length) {
     return rowsToAdd;
   }
 
   const sharedPhone = inferSharedPhone(people);
-  const fallbackDays = detectDaysFromMessage(messageText, events);
+  const dateDays = getSatSunFromIsoDate(eventDate);
 
   for (const person of people) {
     const name = (person.name || "").trim();
     const phone = (person.phone || sharedPhone || "").trim();
     const gender = normalizeGender(person.gender || "");
 
-    const sat = normalizeYesNo(person.sat, fallbackDays.sat);
-    const sun = normalizeYesNo(person.sun, fallbackDays.sun);
+    const sat = eventDate
+      ? dateDays.sat
+      : normalizeYesNoFromBoolOrString(person.sat, "YES");
 
-    for (const event of events) {
-      const duplicate = existingRows.some(
-        (r) =>
-          String(r.Event).trim() === event &&
-          String(r.Name).trim() === name &&
-          String(r.Sender_phone).trim() === senderPhone
-      );
+    const sun = eventDate
+      ? dateDays.sun
+      : normalizeYesNoFromBoolOrString(person.sun, "YES");
 
-      if (duplicate) {
-        console.log(`Duplicate skipped: ${event} | ${name} | ${senderPhone}`);
-        continue;
-      }
+    const duplicate = existingRows.some(
+      (r) =>
+        String(r.Event).trim() === event &&
+        String(r.Name).trim() === name &&
+        String(r.Sender_phone).trim() === senderPhone
+    );
 
-      rowsToAdd.push([
-        getTimestamp(),
-        event,
-        senderWA,
-        name,
-        phone,
-        gender,
-        sat,
-        sun,
-        senderPhone,
-      ]);
+    if (duplicate) {
+      console.log(`Duplicate skipped: ${event} | ${name} | ${senderPhone}`);
+      continue;
     }
+
+    rowsToAdd.push([
+      getTimestamp(),
+      event,
+      senderWA,
+      name,
+      phone,
+      gender,
+      sat,
+      sun,
+      senderPhone,
+    ]);
   }
 
   return rowsToAdd;
 }
 
 function findRowsForCancellation({ action, senderPhone, existingRows }) {
-  const events = (action.events || []).map(normalizeEvent).filter(Boolean);
-  const people = (action.people || []).filter((p) => (p.name || "").trim());
+  let event = normalizeEvent(action.event || "");
+  const eventDate = (action.eventDate || "").trim();
 
-  if (!events.length) {
+  if (!event && eventDate) {
+    event = monthNameFromIsoDate(eventDate);
+  }
+
+  const people = dedupePeople(action.people || []).filter((p) => (p.name || "").trim());
+
+  if (!event) {
     console.log("Cancellation skipped: no event identified.");
     return [];
   }
@@ -608,42 +511,64 @@ function findRowsForCancellation({ action, senderPhone, existingRows }) {
 
   const rowsToDelete = [];
 
-  for (const event of events) {
-    for (const person of people) {
-      const targetName = (person.name || "").trim();
-      const targetPhone = (person.phone || "").trim();
+  for (const person of people) {
+    const targetName = (person.name || "").trim();
+    const targetPhone = (person.phone || "").trim();
 
-      let matches = existingRows.filter(
-        (r) => String(r.Event).trim() === event && String(r.Name).trim() === targetName
+    let matches = existingRows.filter(
+      (r) => String(r.Event).trim() === event && String(r.Name).trim() === targetName
+    );
+
+    if (targetPhone) {
+      const phoneMatches = matches.filter((r) => String(r.Phone).trim() === targetPhone);
+      if (phoneMatches.length > 0) {
+        matches = phoneMatches;
+      }
+    } else {
+      const senderMatches = matches.filter(
+        (r) => String(r.Sender_phone).trim() === senderPhone
       );
-
-      if (targetPhone) {
-        const phoneMatches = matches.filter((r) => String(r.Phone).trim() === targetPhone);
-        if (phoneMatches.length > 0) {
-          matches = phoneMatches;
-        }
-      } else {
-        const senderMatches = matches.filter(
-          (r) => String(r.Sender_phone).trim() === senderPhone
-        );
-        if (senderMatches.length > 0) {
-          matches = senderMatches;
-        }
+      if (senderMatches.length > 0) {
+        matches = senderMatches;
       }
+    }
 
-      if (matches.length === 1) {
-        rowsToDelete.push(matches[0].rowNumber);
-      } else if (matches.length === 0) {
-        console.log(`No cancellation match found for ${event} | ${targetName}`);
-      } else {
-        console.log(
-          `Ambiguous cancellation skipped for ${event} | ${targetName}. Matches: ${matches.length}`
-        );
-      }
+    if (matches.length === 1) {
+      rowsToDelete.push(matches[0].rowNumber);
+    } else if (matches.length === 0) {
+      console.log(`No cancellation match found for ${event} | ${targetName}`);
+    } else {
+      console.log(`Ambiguous cancellation skipped for ${event} | ${targetName}. Matches: ${matches.length}`);
     }
   }
 
   return [...new Set(rowsToDelete)];
+}
+
+function updateContextFromRegistration(context, action) {
+  const people = dedupePeople(action.people || []).filter((p) => (p.name || "").trim());
+
+  let event = normalizeEvent(action.event || "");
+  const eventDate = (action.eventDate || "").trim();
+
+  if (!event && eventDate) {
+    event = monthNameFromIsoDate(eventDate);
+  }
+
+  if (people.length) {
+    context.lastPeople = people;
+  }
+
+  if (event) {
+    context.lastEvent = event;
+  }
+
+  if (eventDate) {
+    context.lastEventDate = eventDate;
+  }
+
+  context.lastActionType = "registration";
+  context.updatedAt = Date.now();
 }
 
 // =========================
@@ -658,25 +583,12 @@ client.on("message", async (msg) => {
     const senderWA = getSenderWA(msg);
     const senderPhone = getSenderPhone(msg);
     const senderKey = senderWA || senderPhone;
+    const context = getOrCreateContext(senderKey);
 
-    cleanupExpiredDraft(senderKey);
-
-    if (!pendingRegistrations[senderKey]) {
-      pendingRegistrations[senderKey] = {
-        events: [],
-        people: [],
-        lastActionType: "",
-        updatedAt: Date.now(),
-      };
-    }
-
-    const draft = pendingRegistrations[senderKey];
-
-    console.log("Message received:", messageText);
+    console.log("RAW MESSAGE TEXT >>>", JSON.stringify(messageText));
     console.log("SenderWA:", senderWA);
     console.log("Sender_phone:", senderPhone);
-    console.log("SenderKey:", senderKey);
-    console.log("Current draft:", JSON.stringify(draft, null, 2));
+    console.log("Context before AI:", JSON.stringify(context, null, 2));
 
     if (isTestOnlyMessage(messageText)) {
       console.log("Testing message detected. No sheet action taken.");
@@ -687,186 +599,55 @@ client.on("message", async (msg) => {
     let totalAdded = 0;
     let totalDeleted = 0;
 
-    const extraction = await callOpenAIForExtraction(messageText, draft);
+    const extraction = await callOpenAIForExtraction(messageText, context);
     console.log("AI extraction:", JSON.stringify(extraction, null, 2));
 
-    // Manual follow-up extraction for fragmented messages
-    const nameMatch = messageText.match(/姓名[:：]?\s*([^\n]+)/);
-    const phoneMatch = messageText.match(/(电话|手机号|电话号码)[:：]?\s*(\d{7,})/);
-    const genderMatch = messageText.match(/(男|女)/);
+    const actions = Array.isArray(extraction.actions) ? extraction.actions : [];
 
-    if (nameMatch) {
-      const extractedName = nameMatch[1].trim();
-      if (!draft.people.length) {
-        draft.people.push({
-          name: extractedName,
-          phone: "",
-          gender: genderMatch ? (genderMatch[1] === "男" ? "Male" : "Female") : "",
-        });
-      } else {
-        draft.people[draft.people.length - 1].name = extractedName;
-        if (genderMatch) {
-          draft.people[draft.people.length - 1].gender =
-            genderMatch[1] === "男" ? "Male" : "Female";
-        }
-      }
-    }
-
-    if (phoneMatch) {
-      const extractedPhone = phoneMatch[2];
-      if (!draft.people.length) {
-        draft.people.push({
-          name: "",
-          phone: extractedPhone,
-          gender: genderMatch ? (genderMatch[1] === "男" ? "Male" : "Female") : "",
-        });
-      } else {
-        draft.people[draft.people.length - 1].phone = extractedPhone;
-      }
-    }
-
-    if (!nameMatch && !phoneMatch && genderMatch && draft.people.length) {
-      draft.people[draft.people.length - 1].gender =
-        genderMatch[1] === "男" ? "Male" : "Female";
-    }
-
-    let actions = Array.isArray(extraction.actions) ? extraction.actions : [];
-
-    // First pass: update draft with any strong AI output
-    for (const rawAction of actions) {
-      const type = String(rawAction.type || "").toLowerCase();
-
-      if (type === "registration") {
-        const extractedEvents = (rawAction.events || []).map(normalizeEvent).filter(Boolean);
-        const extractedPeople = dedupePeople(rawAction.people || [])
-          .filter((p) => (p.name || "").trim())
-          .map((p) => ({
-            name: p.name || "",
-            phone: p.phone || "",
-            gender: normalizeGender(p.gender || ""),
-            sat: p.sat,
-            sun: p.sun,
-          }));
-
-        if (extractedEvents.length) {
-          draft.events = extractedEvents;
-        }
-
-        if (extractedPeople.length) {
-          draft.people = extractedPeople;
-        }
-
-        if (draft.people.length || draft.events.length) {
-          draft.lastActionType = "registration";
-          draft.updatedAt = Date.now();
-        }
-      }
-    }
-
-    draft.people = dedupePeople(draft.people);
-
-    // Fallback: if AI weak, build registration action from detected month + saved people
-    const fallbackEvents = detectEventsFromMessage(messageText);
-    const fallbackPeople = dedupePeople(draft.people || []).filter((p) => (p.name || "").trim());
-
-    let finalActions = [...actions];
-
-    if (!finalActions.length && (fallbackEvents.length || fallbackPeople.length)) {
-      finalActions.push({
-        type: "registration",
-        events: fallbackEvents,
-        people: fallbackPeople,
-      });
-    }
-
-    if (!finalActions.length) {
+    if (!actions.length) {
       console.log("No actions extracted.");
       return;
     }
 
-    for (const rawAction of finalActions) {
-  const type = String(rawAction.type || "").toLowerCase();
+    for (const rawAction of actions) {
+      const type = String(rawAction.type || "").toLowerCase();
 
-  if (type === "registration") {
-    const aiEvents = (rawAction.events || []).map(normalizeEvent).filter(Boolean);
-    const fallbackEventsFromText = detectEventsFromMessage(messageText);
-
-    const aiPeople = dedupePeople(rawAction.people || [])
-      .filter((p) => (p.name || "").trim())
-      .map((p) => ({
-        name: p.name || "",
-        phone: p.phone || "",
-        gender: normalizeGender(p.gender || ""),
-        sat: p.sat,
-        sun: p.sun,
-      }));
-
-    const fallbackPeopleFromDraft = dedupePeople(draft.people || []).filter(
-      (p) => (p.name || "").trim()
-    );
-
-    // Use AI first, then text fallback, then draft fallback
-    const finalEvents =
-      aiEvents.length > 0
-        ? aiEvents
-        : fallbackEventsFromText.length > 0
-        ? fallbackEventsFromText
-        : draft.events || [];
-
-    const finalPeople =
-      aiPeople.length > 0
-        ? aiPeople
-        : fallbackPeopleFromDraft.length > 0
-        ? fallbackPeopleFromDraft
-        : [];
-
-    if (finalEvents.length) {
-      draft.events = finalEvents;
-    }
-
-    if (finalPeople.length) {
-      draft.people = finalPeople;
-    }
-
-    draft.people = dedupePeople(draft.people);
-    draft.lastActionType = "registration";
-    draft.updatedAt = Date.now();
-
-    console.log("Registration finalEvents:", finalEvents);
-    console.log("Registration finalPeople:", JSON.stringify(finalPeople, null, 2));
-
-    const actionToApply = {
-      ...rawAction,
-      events: finalEvents,
-      people: finalPeople,
-    };
-
-    const rowsToAdd = buildRegistrationRows({
-      action: actionToApply,
-      senderWA,
-      senderPhone,
-      messageText,
-      existingRows,
-    });
-
-    if (rowsToAdd.length) {
-      await appendRows(rowsToAdd);
-      totalAdded += rowsToAdd.length;
-
-      const latest = await getSheetRows();
-      existingRows = latest.rows;
-    } else {
-      console.log("No registration rows added.");
-    }
-  } else if (type === "cancellation") {
-        const normalizedAction = {
+      if (type === "registration") {
+        const action = {
           ...rawAction,
-          events: (rawAction.events || []).map(normalizeEvent).filter(Boolean),
-          people: rawAction.people || [],
+          event: normalizeEvent(rawAction.event || ""),
+          eventDate: (rawAction.eventDate || "").trim(),
+          people: dedupePeople(rawAction.people || []),
+        };
+
+        const rowsToAdd = buildRegistrationRows({
+          action,
+          senderWA,
+          senderPhone,
+          existingRows,
+        });
+
+        if (rowsToAdd.length) {
+          await appendRows(rowsToAdd);
+          totalAdded += rowsToAdd.length;
+
+          const latest = await getSheetRows();
+          existingRows = latest.rows;
+        } else {
+          console.log("No registration rows added.");
+        }
+
+        updateContextFromRegistration(context, action);
+      } else if (type === "cancellation") {
+        const action = {
+          ...rawAction,
+          event: normalizeEvent(rawAction.event || ""),
+          eventDate: (rawAction.eventDate || "").trim(),
+          people: dedupePeople(rawAction.people || []),
         };
 
         const rowsToDelete = findRowsForCancellation({
-          action: normalizedAction,
+          action,
           senderPhone,
           existingRows,
         });
@@ -877,22 +658,22 @@ client.on("message", async (msg) => {
 
           const latest = await getSheetRows();
           existingRows = latest.rows;
-
-          draft.lastActionType = "cancellation";
-          draft.updatedAt = Date.now();
         } else {
           console.log("No cancellation rows deleted.");
         }
+
+        context.lastActionType = "cancellation";
+        context.updatedAt = Date.now();
       } else if (type === "update") {
         console.log("Update intent detected. Not implemented yet. No action taken.");
-        draft.lastActionType = "update";
-        draft.updatedAt = Date.now();
+        context.lastActionType = "update";
+        context.updatedAt = Date.now();
       } else {
         console.log("Other / non-action message detected. No sheet action taken.");
       }
     }
 
-    console.log("Updated draft:", JSON.stringify(draft, null, 2));
+    console.log("Context after AI:", JSON.stringify(context, null, 2));
     console.log(`Done. Added: ${totalAdded}, Deleted: ${totalDeleted}`);
   } catch (error) {
     console.error("Error:", error);
