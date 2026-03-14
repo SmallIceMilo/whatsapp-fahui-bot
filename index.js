@@ -383,7 +383,7 @@ Rules:
 14. For cancellation, include person names whenever possible.
 15. Do not invent names or phone numbers.
 16. If one phone number clearly belongs to one person, keep it with that person only.
-17. A message like "以上三位要报名4月19日" means reuse the people from context and register them for that date.
+17. If a message already registered the people for an earlier date, and a later message refers to them with phrases like "以上三位", "上述三位", "这三位", "same people", or similar, reuse that same group from context and register them for the new date too.
 18. If an action is registration, try hard to return both event and eventDate when date exists.
 
 Message:
