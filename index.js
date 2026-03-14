@@ -339,11 +339,14 @@ async function deleteRowsByNumber(rowNumbers) {
   return rowNumbers.length;
 }
 
-async function callOpenAIForExtraction(messageText) {
+async function callOpenAIForExtraction(messageText, draft = {}) {
   const prompt = `
-You are extracting structured data from WhatsApp messages about event registration.
+You are extracting structured registration data from WhatsApp messages.
 
-Return STRICT JSON only. No markdown. No explanation.
+Return STRICT JSON only.
+Do not use markdown.
+Do not explain anything.
+Do not include any text outside JSON.
 
 Schema:
 {
@@ -353,32 +356,39 @@ Schema:
       "events": ["March"],
       "people": [
         {
-          "name": "Jeff",
-          "phone": "91234567",
+          "name": "杰夫",
+          "phone": "93298978",
           "gender": "Male",
           "sat": true,
-          "sun": true
+          "sun": false
         }
       ]
     }
   ]
 }
 
+Recent sender context:
+${JSON.stringify(draft || {}, null, 2)}
+
 Rules:
-1. If one message contains both cancellation and registration, return multiple actions in order.
-   Example: "敏儿不能去了，换美玲" =>
-   first action cancellation for 敏儿,
-   second action registration for 美玲.
-2. For cancellation, include people names whenever possible.
-3. If no day is mentioned for registration, leave sat/sun null.
-4. If one phone number appears and multiple people are listed, attach that same phone to all people.
-5. If the message is just testing and not a real registration, return type "other".
-6. Support Chinese and English.
-7. Event months should be normalized to English month names when possible.
-8. If cancellation has no identifiable name, leave people as [].
-9. If a single named person appears in a cancellation sentence, include that name.
-10. Never invent names or events not present in the message.
-11. Preserve names exactly as written. Do not translate Chinese names into English.
+1. Extract all meaningful actions from the message.
+2. Support Chinese and English.
+3. Preserve names exactly as written. Do not translate names.
+4. If the message refers to earlier people, such as:
+   "以上三位", "上述三位", "这三位", "same people", "the above people",
+   use the people from Recent sender context.
+5. If the message refers to earlier event context, use it when clearly implied.
+6. Event months should be normalized to English month names when possible.
+7. If a registration message contains people but no clear event, return people and leave events empty.
+8. If a registration message contains event but no new people and refers to earlier people, reuse the earlier people from context.
+9. If no day is mentioned, set sat and sun to null.
+10. For cancellation, include person names whenever possible.
+11. If the message is only testing, return type "other".
+12. Do not invent people, names, or phone numbers.
+13. If gender is stated for all people, apply it to all relevant people.
+14. If the message says "以上三位要报名4月19日", that means the previously mentioned people should be registered for April.
+15. If one phone number is clearly attached to one person, keep it with that person only.
+16. If a message lists multiple people, extract all of them.
 
 Message:
 ${messageText}
@@ -393,9 +403,16 @@ ${messageText}
     body: JSON.stringify({
       model: "gpt-4o-mini",
       temperature: 0,
+      response_format: { type: "json_object" },
       messages: [
-        { role: "system", content: "You extract structured JSON from registration messages." },
-        { role: "user", content: prompt },
+        {
+          role: "system",
+          content: "You extract structured JSON from registration messages."
+        },
+        {
+          role: "user",
+          content: prompt
+        }
       ],
     }),
   });
@@ -407,12 +424,11 @@ ${messageText}
 
   const data = await response.json();
   const content = data?.choices?.[0]?.message?.content || "";
-  const cleaned = stripCodeFences(content);
 
   try {
-    return JSON.parse(cleaned);
+    return JSON.parse(content);
   } catch (err) {
-    console.error("Failed to parse AI JSON:", cleaned);
+    console.error("Failed to parse AI JSON:", content);
     throw err;
   }
 }
