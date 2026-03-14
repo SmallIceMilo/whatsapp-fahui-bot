@@ -785,63 +785,80 @@ client.on("message", async (msg) => {
     }
 
     for (const rawAction of finalActions) {
-      const type = String(rawAction.type || "").toLowerCase();
+  const type = String(rawAction.type || "").toLowerCase();
 
-      if (type === "registration") {
-        const extractedEvents =
-          (rawAction.events || []).map(normalizeEvent).filter(Boolean).length > 0
-            ? (rawAction.events || []).map(normalizeEvent).filter(Boolean)
-            : detectEventsFromMessage(messageText);
+  if (type === "registration") {
+    const aiEvents = (rawAction.events || []).map(normalizeEvent).filter(Boolean);
+    const fallbackEventsFromText = detectEventsFromMessage(messageText);
 
-        const extractedPeople = dedupePeople(rawAction.people || [])
-          .filter((p) => (p.name || "").trim())
-          .map((p) => ({
-            name: p.name || "",
-            phone: p.phone || "",
-            gender: normalizeGender(p.gender || ""),
-            sat: p.sat,
-            sun: p.sun,
-          }));
+    const aiPeople = dedupePeople(rawAction.people || [])
+      .filter((p) => (p.name || "").trim())
+      .map((p) => ({
+        name: p.name || "",
+        phone: p.phone || "",
+        gender: normalizeGender(p.gender || ""),
+        sat: p.sat,
+        sun: p.sun,
+      }));
 
-        const finalEvents = extractedEvents.length ? extractedEvents : draft.events;
-        const finalPeople = extractedPeople.length ? extractedPeople : draft.people;
+    const fallbackPeopleFromDraft = dedupePeople(draft.people || []).filter(
+      (p) => (p.name || "").trim()
+    );
 
-        if (finalEvents.length) {
-          draft.events = finalEvents;
-        }
+    // Use AI first, then text fallback, then draft fallback
+    const finalEvents =
+      aiEvents.length > 0
+        ? aiEvents
+        : fallbackEventsFromText.length > 0
+        ? fallbackEventsFromText
+        : draft.events || [];
 
-        if (finalPeople.length) {
-          draft.people = finalPeople;
-        }
+    const finalPeople =
+      aiPeople.length > 0
+        ? aiPeople
+        : fallbackPeopleFromDraft.length > 0
+        ? fallbackPeopleFromDraft
+        : [];
 
-        draft.people = dedupePeople(draft.people);
-        draft.lastActionType = "registration";
-        draft.updatedAt = Date.now();
+    if (finalEvents.length) {
+      draft.events = finalEvents;
+    }
 
-        const actionToApply = {
-          ...rawAction,
-          events: finalEvents,
-          people: finalPeople,
-        };
+    if (finalPeople.length) {
+      draft.people = finalPeople;
+    }
 
-        const rowsToAdd = buildRegistrationRows({
-          action: actionToApply,
-          senderWA,
-          senderPhone,
-          messageText,
-          existingRows,
-        });
+    draft.people = dedupePeople(draft.people);
+    draft.lastActionType = "registration";
+    draft.updatedAt = Date.now();
 
-        if (rowsToAdd.length) {
-          await appendRows(rowsToAdd);
-          totalAdded += rowsToAdd.length;
+    console.log("Registration finalEvents:", finalEvents);
+    console.log("Registration finalPeople:", JSON.stringify(finalPeople, null, 2));
 
-          const latest = await getSheetRows();
-          existingRows = latest.rows;
-        } else {
-          console.log("No registration rows added.");
-        }
-      } else if (type === "cancellation") {
+    const actionToApply = {
+      ...rawAction,
+      events: finalEvents,
+      people: finalPeople,
+    };
+
+    const rowsToAdd = buildRegistrationRows({
+      action: actionToApply,
+      senderWA,
+      senderPhone,
+      messageText,
+      existingRows,
+    });
+
+    if (rowsToAdd.length) {
+      await appendRows(rowsToAdd);
+      totalAdded += rowsToAdd.length;
+
+      const latest = await getSheetRows();
+      existingRows = latest.rows;
+    } else {
+      console.log("No registration rows added.");
+    }
+  } else if (type === "cancellation") {
         const normalizedAction = {
           ...rawAction,
           events: (rawAction.events || []).map(normalizeEvent).filter(Boolean),
