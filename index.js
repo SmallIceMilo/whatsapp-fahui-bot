@@ -1,4 +1,3 @@
-
 const pendingRegistrations = {};
 const { Client, LocalAuth } = require("whatsapp-web.js");
 const { google } = require("googleapis");
@@ -6,7 +5,7 @@ const { google } = require("googleapis");
 // =========================
 // CONFIG
 // =========================
-const SHEET_ID = process.env.GOOGLE_SHEET_ID; // put your Google Sheet ID in Railway
+const SHEET_ID = process.env.GOOGLE_SHEET_ID;
 const SHEET_NAME = process.env.GOOGLE_SHEET_NAME || "Sheet1";
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
@@ -36,7 +35,6 @@ const sheets = google.sheets({ version: "v4", auth });
 // =========================
 // WHATSAPP CLIENT
 // =========================
-
 const client = new Client({
   authStrategy: new LocalAuth({
     dataPath: "/app/.wwebjs_auth",
@@ -47,8 +45,8 @@ const client = new Client({
       "--no-sandbox",
       "--disable-setuid-sandbox",
       "--disable-dev-shm-usage",
-      "--disable-gpu"
-    ]
+      "--disable-gpu",
+    ],
   },
 });
 
@@ -173,41 +171,41 @@ function normalizeEvent(event) {
   const e = String(event).trim().toLowerCase();
 
   const map = {
-    "january": "January",
-    "jan": "January",
+    january: "January",
+    jan: "January",
     "一月": "January",
-    "february": "February",
-    "feb": "February",
+    february: "February",
+    feb: "February",
     "二月": "February",
-    "march": "March",
-    "mar": "March",
+    march: "March",
+    mar: "March",
     "三月": "March",
-    "april": "April",
-    "apr": "April",
+    april: "April",
+    apr: "April",
     "四月": "April",
-    "may": "May",
+    may: "May",
     "五月": "May",
-    "june": "June",
-    "jun": "June",
+    june: "June",
+    jun: "June",
     "六月": "June",
-    "july": "July",
-    "jul": "July",
+    july: "July",
+    jul: "July",
     "七月": "July",
-    "august": "August",
-    "aug": "August",
+    august: "August",
+    aug: "August",
     "八月": "August",
-    "september": "September",
-    "sep": "September",
-    "sept": "September",
+    september: "September",
+    sep: "September",
+    sept: "September",
     "九月": "September",
-    "october": "October",
-    "oct": "October",
+    october: "October",
+    oct: "October",
     "十月": "October",
-    "november": "November",
-    "nov": "November",
+    november: "November",
+    nov: "November",
     "十一月": "November",
-    "december": "December",
-    "dec": "December",
+    december: "December",
+    dec: "December",
     "十二月": "December",
   };
 
@@ -230,12 +228,12 @@ function detectEventsFromMessage(messageText) {
     { month: "September", num: 9, en: ["september", "sep", "sept"], zh: ["九月", "9月"] },
     { month: "October", num: 10, en: ["october", "oct"], zh: ["十月", "10月"] },
     { month: "November", num: 11, en: ["november", "nov"], zh: ["十一月", "11月"] },
-    { month: "December", num: 12, en: ["december", "dec"], zh: ["十二月", "12月"] }
+    { month: "December", num: 12, en: ["december", "dec"], zh: ["十二月", "12月"] },
   ];
 
   for (const m of monthPatterns) {
-    const hasEnglish = m.en.some(k => text.includes(k));
-    const hasChinese = m.zh.some(k => text.includes(k));
+    const hasEnglish = m.en.some((k) => new RegExp(`\\b${k}\\b`).test(text));
+    const hasChinese = m.zh.some((k) => text.includes(k)) || text.includes(`${m.num} 月`);
     const hasSlashPrefix = new RegExp(`(^|[^0-9])${m.num}\\/\\d+`).test(text);
     const hasSlashSuffix = new RegExp(`\\d+\\/${m.num}(?!\\d)`).test(text);
 
@@ -246,7 +244,6 @@ function detectEventsFromMessage(messageText) {
 
   return [...new Set(events)];
 }
-
 
 function isTestOnlyMessage(text) {
   const t = String(text || "").trim().toLowerCase();
@@ -264,12 +261,25 @@ function dedupePeople(people) {
       result.push(p);
     }
   }
+
   return result;
 }
 
 function inferSharedPhone(people) {
   const phones = [...new Set((people || []).map((p) => (p.phone || "").trim()).filter(Boolean))];
   return phones.length === 1 ? phones[0] : "";
+}
+
+function isDraftExpired(draft, maxMinutes = 30) {
+  if (!draft || !draft.updatedAt) return true;
+  return Date.now() - draft.updatedAt > maxMinutes * 60 * 1000;
+}
+
+function cleanupExpiredDraft(senderKey) {
+  const draft = pendingRegistrations[senderKey];
+  if (draft && isDraftExpired(draft)) {
+    delete pendingRegistrations[senderKey];
+  }
 }
 
 async function getSheetRows() {
@@ -407,12 +417,12 @@ ${messageText}
       messages: [
         {
           role: "system",
-          content: "You extract structured JSON from registration messages."
+          content: "You extract structured JSON from registration messages.",
         },
         {
           role: "user",
-          content: prompt
-        }
+          content: prompt,
+        },
       ],
     }),
   });
@@ -424,11 +434,12 @@ ${messageText}
 
   const data = await response.json();
   const content = data?.choices?.[0]?.message?.content || "";
+  const cleaned = stripCodeFences(content);
 
   try {
-    return JSON.parse(content);
+    return JSON.parse(cleaned);
   } catch (err) {
-    console.error("Failed to parse AI JSON:", content);
+    console.error("Failed to parse AI JSON:", cleaned);
     throw err;
   }
 }
@@ -436,14 +447,13 @@ ${messageText}
 function buildRegistrationRows({ action, senderWA, senderPhone, messageText, existingRows }) {
   const rowsToAdd = [];
   const events = (action.events || []).map(normalizeEvent).filter(Boolean);
-  let people = dedupePeople(action.people || []).filter((p) => (p.name || "").trim());
+  const people = dedupePeople(action.people || []).filter((p) => (p.name || "").trim());
 
   if (!events.length || !people.length) {
     return rowsToAdd;
   }
 
   const sharedPhone = inferSharedPhone(people);
-
   const fallbackDays = detectDaysFromMessage(messageText);
 
   for (const person of people) {
@@ -451,22 +461,16 @@ function buildRegistrationRows({ action, senderWA, senderPhone, messageText, exi
     const phone = (person.phone || sharedPhone || "").trim();
     const gender = normalizeGender(person.gender || "");
 
-    const sat =
-      person.sat === true ? "YES" :
-      person.sat === false ? "NO" :
-      fallbackDays.sat;
-
-    const sun =
-      person.sun === true ? "YES" :
-      person.sun === false ? "NO" :
-      fallbackDays.sun;
+    const sat = normalizeYesNo(person.sat, fallbackDays.sat);
+    const sun = normalizeYesNo(person.sun, fallbackDays.sun);
 
     for (const event of events) {
-      const duplicate = existingRows.some((r) =>
-        String(r.Event).trim() === event &&
-        String(r.Name).trim() === name &&
-        String(r.Sender_phone).trim() === senderPhone
-    );
+      const duplicate = existingRows.some(
+        (r) =>
+          String(r.Event).trim() === event &&
+          String(r.Name).trim() === name &&
+          String(r.Sender_phone).trim() === senderPhone
+      );
 
       if (duplicate) {
         console.log(`Duplicate skipped: ${event} | ${name} | ${senderPhone}`);
@@ -474,15 +478,15 @@ function buildRegistrationRows({ action, senderWA, senderPhone, messageText, exi
       }
 
       rowsToAdd.push([
-        getTimestamp(),   // Timestamp
-        event,            // Event
-        senderWA,         // SenderWA
-        name,             // Name
-        phone,            // Phone
-        gender,           // Gender
-        sat,              // Sat
-        sun,              // Sun
-        senderPhone,      // Sender_phone
+        getTimestamp(),
+        event,
+        senderWA,
+        name,
+        phone,
+        gender,
+        sat,
+        sun,
+        senderPhone,
       ]);
     }
   }
@@ -511,9 +515,8 @@ function findRowsForCancellation({ action, senderPhone, existingRows }) {
       const targetName = (person.name || "").trim();
       const targetPhone = (person.phone || "").trim();
 
-      let matches = existingRows.filter((r) =>
-        String(r.Event).trim() === event &&
-        String(r.Name).trim() === targetName
+      let matches = existingRows.filter(
+        (r) => String(r.Event).trim() === event && String(r.Name).trim() === targetName
       );
 
       if (targetPhone) {
@@ -522,7 +525,9 @@ function findRowsForCancellation({ action, senderPhone, existingRows }) {
           matches = phoneMatches;
         }
       } else {
-        const senderMatches = matches.filter((r) => String(r.Sender_phone).trim() === senderPhone);
+        const senderMatches = matches.filter(
+          (r) => String(r.Sender_phone).trim() === senderPhone
+        );
         if (senderMatches.length > 0) {
           matches = senderMatches;
         }
@@ -533,7 +538,9 @@ function findRowsForCancellation({ action, senderPhone, existingRows }) {
       } else if (matches.length === 0) {
         console.log(`No cancellation match found for ${event} | ${targetName}`);
       } else {
-        console.log(`Ambiguous cancellation skipped for ${event} | ${targetName}. Matches: ${matches.length}`);
+        console.log(
+          `Ambiguous cancellation skipped for ${event} | ${targetName}. Matches: ${matches.length}`
+        );
       }
     }
   }
@@ -550,201 +557,182 @@ client.on("message", async (msg) => {
     if (msg.from === "status@broadcast") return;
 
     const messageText = msg.body.trim();
-  const senderWA = getSenderWA(msg);
-  const senderPhone = getSenderPhone(msg);
-  const senderKey = senderWA || senderPhone;
+    const senderWA = getSenderWA(msg);
+    const senderPhone = getSenderPhone(msg);
+    const senderKey = senderWA || senderPhone;
 
-  if (!pendingRegistrations[senderKey]) {
-    pendingRegistrations[senderKey] = {
-    events: [],
-    people: [],
-    lastActionType: "",
-    updatedAt: Date.now()
-    };
-  }
+    cleanupExpiredDraft(senderKey);
 
-  let draft = pendingRegistrations[senderKey];
+    if (!pendingRegistrations[senderKey]) {
+      pendingRegistrations[senderKey] = {
+        events: [],
+        people: [],
+        lastActionType: "",
+        updatedAt: Date.now(),
+      };
+    }
 
-  console.log("Message received:", messageText);
-  console.log("SenderWA:", senderWA);
-  console.log("Sender_phone:", senderPhone);
-  console.log("SenderKey:", senderKey);
-  console.log("Current draft:", JSON.stringify(draft, null, 2));
+    const draft = pendingRegistrations[senderKey];
+
+    console.log("Message received:", messageText);
+    console.log("SenderWA:", senderWA);
+    console.log("Sender_phone:", senderPhone);
+    console.log("SenderKey:", senderKey);
+    console.log("Current draft:", JSON.stringify(draft, null, 2));
 
     if (isTestOnlyMessage(messageText)) {
       console.log("Testing message detected. No sheet action taken.");
       return;
     }
 
-    const extraction = await callOpenAIForExtraction(messageText);
-    console.log("AI extraction:", JSON.stringify(extraction, null, 2));
-
-    // Manual follow-up extraction for multi-message registration
-const nameMatch = messageText.match(/姓名[:：]?\s*([^\n]+)/);
-const phoneMatch = messageText.match(/(电话|手机号|电话号码)[:：]?\s*(\d{7,})/);
-const genderMatch = messageText.match(/(男|女)/);
-
-if (nameMatch) {
-  const extractedName = nameMatch[1].trim();
-
-  if (!draft.people.length) {
-    draft.people.push({
-      name: extractedName,
-      phone: "",
-      gender: genderMatch ? (genderMatch[1] === "男" ? "Male" : "Female") : ""
-    });
-  } else {
-    draft.people[draft.people.length - 1].name = extractedName;
-    if (genderMatch) {
-      draft.people[draft.people.length - 1].gender =
-        genderMatch[1] === "男" ? "Male" : "Female";
-    }
-  }
-}
-
-if (phoneMatch) {
-  const extractedPhone = phoneMatch[2];
-
-  if (!draft.people.length) {
-    draft.people.push({
-      name: "",
-      phone: extractedPhone,
-      gender: genderMatch ? (genderMatch[1] === "男" ? "Male" : "Female") : ""
-    });
-  } else {
-    draft.people[draft.people.length - 1].phone = extractedPhone;
-  }
-}
-
-if (!nameMatch && !phoneMatch && genderMatch && draft.people.length) {
-  draft.people[draft.people.length - 1].gender =
-    genderMatch[1] === "男" ? "Male" : "Female";
-}
-
-    const actions = Array.isArray(extraction.actions) ? extraction.actions : [];
-
-    for (const action of actions) {
-  const type = String(action.type || "").toLowerCase();
-
-  if (type === "registration") {
-    const extractedEvents = (action.events || []).map(normalizeEvent).filter(Boolean);
-    const extractedPeople = dedupePeople(action.people || []).filter((p) => (p.name || "").trim());
-
-    if (extractedEvents.length) {
-      draft.events = extractedEvents;
-    }
-
-    if (extractedPeople.length) {
-      draft.people = extractedPeople.map((p) => ({
-        name: p.name || "",
-        phone: p.phone || "",
-        gender: normalizeGender(p.gender || ""),
-        sat: p.sat,
-        sun: p.sun
-      }));
-    }
-
-    const rowsToAdd = buildRegistrationRows({
-      action: {
-        ...action,
-        events: extractedEvents.length ? extractedEvents : draft.events,
-        people: extractedPeople.length ? extractedPeople : draft.people
-      },
-      senderWA,
-      senderPhone,
-      messageText,
-      existingRows,
-    });
-
-    if (rowsToAdd.length) {
-      await appendRows(rowsToAdd);
-      totalAdded += rowsToAdd.length;
-      const latest = await getSheetRows();
-      existingRows = latest.rows;
-    } else {
-      console.log("No registration rows added.");
-    }
-  }
-}
-
-draft.people = dedupePeople(draft.people);
-console.log("Updated draft:", JSON.stringify(draft, null, 2));
-
-  if (!actions.length && !((draft.events || []).length && draft.people.length)) {
-    console.log("No actions extracted and no usable draft.");
-    return;
-  }
-    
-let finalActions = [...actions];
-
-const hasDraftName = draft.people.some((p) => (p.name || "").trim());
-
-if ((draft.events || []).length && hasDraftName) {
-  finalActions.push({
-    type: "registration",
-    events: draft.events,
-    people: draft.people
-  });
-}
-    
     let { rows: existingRows } = await getSheetRows();
-
     let totalAdded = 0;
     let totalDeleted = 0;
 
-    for (const action of finalActions) {
-  const type = String(action.type || "").toLowerCase();
+    const extraction = await callOpenAIForExtraction(messageText, draft);
+    console.log("AI extraction:", JSON.stringify(extraction, null, 2));
 
-  if (type === "registration") {
-    const rowsToAdd = buildRegistrationRows({
-      action,
-    senderWA,
-    senderPhone,
-    messageText,
-    existingRows,
-  });
+    // Optional manual follow-up extraction for very fragmented messages
+    const nameMatch = messageText.match(/姓名[:：]?\s*([^\n]+)/);
+    const phoneMatch = messageText.match(/(电话|手机号|电话号码)[:：]?\s*(\d{7,})/);
+    const genderMatch = messageText.match(/(男|女)/);
 
-  if (rowsToAdd.length) {
-    await appendRows(rowsToAdd);
-    totalAdded += rowsToAdd.length;
-
-    const latest = await getSheetRows();
-    existingRows = latest.rows;
-
-    // update conversation memory
-    draft.lastActionType = "registration";
-    draft.updatedAt = Date.now();
-
-    delete pendingRegistrations[senderKey];
-    } else {
-      console.log("No registration rows added.");
-    }
-  }
-  } else if (type === "cancellation") {
-    const rowsToDelete = findRowsForCancellation({
-      action,
-      senderPhone,
-      existingRows,
-    });
-
-    if (rowsToDelete.length) {
-      await deleteRowsByNumber(rowsToDelete);
-      totalDeleted += rowsToDelete.length;
-
-      const latest = await getSheetRows();
-      existingRows = latest.rows;
-    } else {
-      console.log("No cancellation rows deleted.");
+    if (nameMatch) {
+      const extractedName = nameMatch[1].trim();
+      if (!draft.people.length) {
+        draft.people.push({
+          name: extractedName,
+          phone: "",
+          gender: genderMatch ? (genderMatch[1] === "男" ? "Male" : "Female") : "",
+        });
+      } else {
+        draft.people[draft.people.length - 1].name = extractedName;
+        if (genderMatch) {
+          draft.people[draft.people.length - 1].gender =
+            genderMatch[1] === "男" ? "Male" : "Female";
+        }
+      }
     }
 
-  } else if (type === "update") {
-    console.log("Update intent detected. Not implemented yet. No action taken.");
+    if (phoneMatch) {
+      const extractedPhone = phoneMatch[2];
+      if (!draft.people.length) {
+        draft.people.push({
+          name: "",
+          phone: extractedPhone,
+          gender: genderMatch ? (genderMatch[1] === "男" ? "Male" : "Female") : "",
+        });
+      } else {
+        draft.people[draft.people.length - 1].phone = extractedPhone;
+      }
+    }
 
-  } else {
-    console.log("Other / non-action message detected. No sheet action taken.");
-  }
-}
+    if (!nameMatch && !phoneMatch && genderMatch && draft.people.length) {
+      draft.people[draft.people.length - 1].gender =
+        genderMatch[1] === "男" ? "Male" : "Female";
+    }
 
+    const actions = Array.isArray(extraction.actions) ? extraction.actions : [];
+
+    if (!actions.length) {
+      console.log("No actions extracted.");
+      return;
+    }
+
+    for (const rawAction of actions) {
+      const type = String(rawAction.type || "").toLowerCase();
+
+      if (type === "registration") {
+        const extractedEvents =
+          (rawAction.events || []).map(normalizeEvent).filter(Boolean).length > 0
+            ? (rawAction.events || []).map(normalizeEvent).filter(Boolean)
+            : detectEventsFromMessage(messageText);
+
+        const extractedPeople = dedupePeople(rawAction.people || [])
+          .filter((p) => (p.name || "").trim())
+          .map((p) => ({
+            name: p.name || "",
+            phone: p.phone || "",
+            gender: normalizeGender(p.gender || ""),
+            sat: p.sat,
+            sun: p.sun,
+          }));
+
+        const finalEvents = extractedEvents.length ? extractedEvents : draft.events;
+        const finalPeople = extractedPeople.length ? extractedPeople : draft.people;
+
+        if (extractedEvents.length) {
+          draft.events = extractedEvents;
+        }
+
+        if (extractedPeople.length) {
+          draft.people = extractedPeople;
+        }
+
+        draft.people = dedupePeople(draft.people);
+        draft.updatedAt = Date.now();
+
+        const actionToApply = {
+          ...rawAction,
+          events: finalEvents,
+          people: finalPeople,
+        };
+
+        const rowsToAdd = buildRegistrationRows({
+          action: actionToApply,
+          senderWA,
+          senderPhone,
+          messageText,
+          existingRows,
+        });
+
+        if (rowsToAdd.length) {
+          await appendRows(rowsToAdd);
+          totalAdded += rowsToAdd.length;
+
+          const latest = await getSheetRows();
+          existingRows = latest.rows;
+
+          draft.lastActionType = "registration";
+          draft.updatedAt = Date.now();
+        } else {
+          console.log("No registration rows added.");
+        }
+      } else if (type === "cancellation") {
+        const normalizedAction = {
+          ...rawAction,
+          events: (rawAction.events || []).map(normalizeEvent).filter(Boolean),
+          people: rawAction.people || [],
+        };
+
+        const rowsToDelete = findRowsForCancellation({
+          action: normalizedAction,
+          senderPhone,
+          existingRows,
+        });
+
+        if (rowsToDelete.length) {
+          await deleteRowsByNumber(rowsToDelete);
+          totalDeleted += rowsToDelete.length;
+
+          const latest = await getSheetRows();
+          existingRows = latest.rows;
+
+          draft.lastActionType = "cancellation";
+          draft.updatedAt = Date.now();
+        } else {
+          console.log("No cancellation rows deleted.");
+        }
+      } else if (type === "update") {
+        console.log("Update intent detected. Not implemented yet. No action taken.");
+        draft.lastActionType = "update";
+        draft.updatedAt = Date.now();
+      } else {
+        console.log("Other / non-action message detected. No sheet action taken.");
+      }
+    }
+
+    console.log("Updated draft:", JSON.stringify(draft, null, 2));
     console.log(`Done. Added: ${totalAdded}, Deleted: ${totalDeleted}`);
   } catch (error) {
     console.error("Error:", error);
@@ -752,31 +740,3 @@ if ((draft.events || []).length && hasDraftName) {
 });
 
 client.initialize();
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
