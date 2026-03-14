@@ -385,6 +385,20 @@ Rules:
 16. If one phone number clearly belongs to one person, keep it with that person only.
 17. If a message already registered the people for an earlier date, and a later message refers to them with phrases like "以上三位", "上述三位", "这三位", "same people", or similar, reuse that same group from context and register them for the new date too.
 18. If an action is registration, try hard to return both event and eventDate when date exists.
+19. If the message contains sections related to memorial tablets such as:
+   "牌位", "婴灵牌位", "往生莲位", "历代祖先莲位", "消灾", "冤亲债主",
+   these sections contain deceased names or spiritual dedications, NOT event registrants.
+
+20. Names listed under these sections must NOT be extracted as people for registration.
+
+21. Only extract people as registrants if they are clearly applying, registering, or attending an event (报名, 参加, register, attend, etc).
+
+22. If the message is purely about memorial tablet entries (牌位填写), return:
+{
+  "actions": [
+    { "type": "other" }
+  ]
+}
 
 Message:
 ${messageText}
