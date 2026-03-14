@@ -627,25 +627,42 @@ if (!nameMatch && !phoneMatch && genderMatch && draft.people.length) {
   const type = String(action.type || "").toLowerCase();
 
   if (type === "registration") {
-    const extractedEvents =
-      action.events && action.events.length > 0
-        ? action.events.map(normalizeEvent).filter(Boolean)
-        : detectEventsFromMessage(messageText);
+    const extractedEvents = (action.events || []).map(normalizeEvent).filter(Boolean);
+    const extractedPeople = dedupePeople(action.people || []).filter((p) => (p.name || "").trim());
 
-  if (extractedEvents.length > 0) {
-    draft.events = [...new Set([...(draft.events || []), ...extractedEvents])];
-  }
+    if (extractedEvents.length) {
+      draft.events = extractedEvents;
+    }
 
-  if (action.people && action.people.length > 0) {
-      for (const p of action.people) {
-        if (!p.name && !p.phone && !p.gender) continue;
+    if (extractedPeople.length) {
+      draft.people = extractedPeople.map((p) => ({
+        name: p.name || "",
+        phone: p.phone || "",
+        gender: normalizeGender(p.gender || ""),
+        sat: p.sat,
+        sun: p.sun
+      }));
+    }
 
-        draft.people.push({
-          name: p.name || "",
-          phone: p.phone || "",
-          gender: normalizeGender(p.gender || "")
-        });
-      }
+    const rowsToAdd = buildRegistrationRows({
+      action: {
+        ...action,
+        events: extractedEvents.length ? extractedEvents : draft.events,
+        people: extractedPeople.length ? extractedPeople : draft.people
+      },
+      senderWA,
+      senderPhone,
+      messageText,
+      existingRows,
+    });
+
+    if (rowsToAdd.length) {
+      await appendRows(rowsToAdd);
+      totalAdded += rowsToAdd.length;
+      const latest = await getSheetRows();
+      existingRows = latest.rows;
+    } else {
+      console.log("No registration rows added.");
     }
   }
 }
