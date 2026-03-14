@@ -681,24 +681,28 @@ if ((draft.events || []).length && hasDraftName) {
   if (type === "registration") {
     const rowsToAdd = buildRegistrationRows({
       action,
-      senderWA,
-      senderPhone,
-      messageText,
-      existingRows,
-    });
+    senderWA,
+    senderPhone,
+    messageText,
+    existingRows,
+  });
 
-    if (rowsToAdd.length) {
-      await appendRows(rowsToAdd);
-      totalAdded += rowsToAdd.length;
+  if (rowsToAdd.length) {
+    await appendRows(rowsToAdd);
+    totalAdded += rowsToAdd.length;
 
-      const latest = await getSheetRows();
-      existingRows = latest.rows;
+    const latest = await getSheetRows();
+    existingRows = latest.rows;
 
-      delete pendingRegistrations[senderKey];
+    // update conversation memory
+    draft.lastActionType = "registration";
+    draft.updatedAt = Date.now();
+
+    delete pendingRegistrations[senderKey];
     } else {
       console.log("No registration rows added.");
     }
-
+  }
   } else if (type === "cancellation") {
     const rowsToDelete = findRowsForCancellation({
       action,
