@@ -556,8 +556,10 @@ client.on("message", async (msg) => {
 
   if (!pendingRegistrations[senderKey]) {
     pendingRegistrations[senderKey] = {
-      events: [],
-      people: []
+    events: [],
+    people: [],
+    lastActionType: "",
+    updatedAt: Date.now()
     };
   }
 
