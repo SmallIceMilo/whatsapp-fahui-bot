@@ -79,6 +79,10 @@ function getTimestamp() {
   return new Date().toISOString();
 }
 
+function getCurrentYear() {
+  return new Date().getFullYear();
+}
+
 function getSenderPhone(msg) {
   if (msg.from && msg.from.endsWith("@g.us")) {
     return (msg.author || "").split("@")[0];
@@ -128,44 +132,6 @@ function normalizeYesNo(value, defaultValue = "YES") {
   return defaultValue;
 }
 
-function detectDaysFromMessage(messageText) {
-  const text = String(messageText || "").toLowerCase();
-
-  const hasSat =
-    text.includes("sat") ||
-    text.includes("saturday") ||
-    text.includes("星期六") ||
-    text.includes("周六") ||
-    text.includes("礼拜六") ||
-    text.includes("禮拜六");
-
-  const hasSun =
-    text.includes("sun") ||
-    text.includes("sunday") ||
-    text.includes("星期日") ||
-    text.includes("星期天") ||
-    text.includes("周日") ||
-    text.includes("周天") ||
-    text.includes("礼拜天") ||
-    text.includes("礼拜日") ||
-    text.includes("禮拜天") ||
-    text.includes("禮拜日");
-
-  if (hasSat && !hasSun) {
-    return { sat: "YES", sun: "NO" };
-  }
-
-  if (!hasSat && hasSun) {
-    return { sat: "NO", sun: "YES" };
-  }
-
-  if (hasSat && hasSun) {
-    return { sat: "YES", sun: "YES" };
-  }
-
-  return { sat: "YES", sun: "YES" };
-}
-
 function normalizeEvent(event) {
   if (!event) return "";
   const e = String(event).trim().toLowerCase();
@@ -212,6 +178,133 @@ function normalizeEvent(event) {
   return map[e] || event;
 }
 
+function monthNameToNumber(monthName) {
+  const map = {
+    January: 1,
+    February: 2,
+    March: 3,
+    April: 4,
+    May: 5,
+    June: 6,
+    July: 7,
+    August: 8,
+    September: 9,
+    October: 10,
+    November: 11,
+    December: 12,
+  };
+  return map[monthName] || null;
+}
+
+function getWeekdayFromDateParts(year, month, day) {
+  const d = new Date(year, month - 1, day);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.getDay(); // 0=Sun, 6=Sat
+}
+
+function extractMonthDayPairs(messageText, fallbackEvents = []) {
+  const text = String(messageText || "");
+  const pairs = [];
+
+  // Chinese style: 3月22日
+  const zhMatches = [...text.matchAll(/(\d{1,2})\s*月\s*(\d{1,2})\s*日/g)];
+  for (const match of zhMatches) {
+    const month = Number(match[1]);
+    const day = Number(match[2]);
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      pairs.push({ month, day });
+    }
+  }
+
+  // slash style: 3/22 or 22/3
+  const slashMatches = [...text.matchAll(/(\d{1,2})\/(\d{1,2})/g)];
+  for (const match of slashMatches) {
+    const a = Number(match[1]);
+    const b = Number(match[2]);
+
+    if (a >= 1 && a <= 12 && b >= 1 && b <= 31) {
+      pairs.push({ month: a, day: b });
+    } else if (b >= 1 && b <= 12 && a >= 1 && a <= 31) {
+      pairs.push({ month: b, day: a });
+    }
+  }
+
+  // If only day is mentioned like "22日", try using detected event month
+  const dayOnlyMatches = [...text.matchAll(/(\d{1,2})\s*日/g)];
+  if (pairs.length === 0 && fallbackEvents.length > 0 && dayOnlyMatches.length > 0) {
+    const month = monthNameToNumber(fallbackEvents[0]);
+    if (month) {
+      for (const match of dayOnlyMatches) {
+        const day = Number(match[1]);
+        if (day >= 1 && day <= 31) {
+          pairs.push({ month, day });
+        }
+      }
+    }
+  }
+
+  return pairs;
+}
+
+function detectDaysFromMessage(messageText, events = []) {
+  const text = String(messageText || "").toLowerCase();
+
+  const hasSatWord =
+    text.includes("sat") ||
+    text.includes("saturday") ||
+    text.includes("星期六") ||
+    text.includes("周六") ||
+    text.includes("礼拜六") ||
+    text.includes("禮拜六");
+
+  const hasSunWord =
+    text.includes("sun") ||
+    text.includes("sunday") ||
+    text.includes("星期日") ||
+    text.includes("星期天") ||
+    text.includes("周日") ||
+    text.includes("周天") ||
+    text.includes("礼拜天") ||
+    text.includes("礼拜日") ||
+    text.includes("禮拜天") ||
+    text.includes("禮拜日");
+
+  if (hasSatWord && !hasSunWord) {
+    return { sat: "YES", sun: "NO" };
+  }
+
+  if (!hasSatWord && hasSunWord) {
+    return { sat: "NO", sun: "YES" };
+  }
+
+  if (hasSatWord && hasSunWord) {
+    return { sat: "YES", sun: "YES" };
+  }
+
+  // If no explicit sat/sun words, infer from real date
+  const pairs = extractMonthDayPairs(messageText, events);
+  if (pairs.length > 0) {
+    const year = getCurrentYear();
+
+    // If any detected date is Sunday => Sun YES
+    // If any detected date is Saturday => Sat YES
+    let sat = "NO";
+    let sun = "NO";
+
+    for (const pair of pairs) {
+      const weekday = getWeekdayFromDateParts(year, pair.month, pair.day);
+      if (weekday === 6) sat = "YES";
+      if (weekday === 0) sun = "YES";
+    }
+
+    if (sat === "YES" || sun === "YES") {
+      return { sat, sun };
+    }
+  }
+
+  return { sat: "YES", sun: "YES" };
+}
+
 function detectEventsFromMessage(messageText) {
   const text = String(messageText || "").toLowerCase();
   const events = [];
@@ -233,7 +326,7 @@ function detectEventsFromMessage(messageText) {
 
   for (const m of monthPatterns) {
     const hasEnglish = m.en.some((k) => new RegExp(`\\b${k}\\b`).test(text));
-    const hasChinese = m.zh.some((k) => text.includes(k)) || text.includes(`${m.num} 月`);
+    const hasChinese = m.zh.some((k) => text.includes(k)) || text.includes(`${m.num}月`);
     const hasSlashPrefix = new RegExp(`(^|[^0-9])${m.num}\\/\\d+`).test(text);
     const hasSlashSuffix = new RegExp(`\\d+\\/${m.num}(?!\\d)`).test(text);
 
@@ -399,6 +492,11 @@ Rules:
 14. If the message says "以上三位要报名4月19日", that means the previously mentioned people should be registered for April.
 15. If one phone number is clearly attached to one person, keep it with that person only.
 16. If a message lists multiple people, extract all of them.
+17. Messages may contain numbered lists such as "2) name / English name / phone".
+18. Treat each numbered entry as a separate person.
+19. If a message says "全部女性", apply Female to all listed people.
+20. A date like "3月22日" means the month is March.
+21. A date like "4月19日" means the month is April.
 
 Message:
 ${messageText}
@@ -454,7 +552,7 @@ function buildRegistrationRows({ action, senderWA, senderPhone, messageText, exi
   }
 
   const sharedPhone = inferSharedPhone(people);
-  const fallbackDays = detectDaysFromMessage(messageText);
+  const fallbackDays = detectDaysFromMessage(messageText, events);
 
   for (const person of people) {
     const name = (person.name || "").trim();
@@ -592,7 +690,7 @@ client.on("message", async (msg) => {
     const extraction = await callOpenAIForExtraction(messageText, draft);
     console.log("AI extraction:", JSON.stringify(extraction, null, 2));
 
-    // Optional manual follow-up extraction for very fragmented messages
+    // Manual follow-up extraction for fragmented messages
     const nameMatch = messageText.match(/姓名[:：]?\s*([^\n]+)/);
     const phoneMatch = messageText.match(/(电话|手机号|电话号码)[:：]?\s*(\d{7,})/);
     const genderMatch = messageText.match(/(男|女)/);
@@ -632,14 +730,61 @@ client.on("message", async (msg) => {
         genderMatch[1] === "男" ? "Male" : "Female";
     }
 
-    const actions = Array.isArray(extraction.actions) ? extraction.actions : [];
+    let actions = Array.isArray(extraction.actions) ? extraction.actions : [];
 
-    if (!actions.length) {
+    // First pass: update draft with any strong AI output
+    for (const rawAction of actions) {
+      const type = String(rawAction.type || "").toLowerCase();
+
+      if (type === "registration") {
+        const extractedEvents = (rawAction.events || []).map(normalizeEvent).filter(Boolean);
+        const extractedPeople = dedupePeople(rawAction.people || [])
+          .filter((p) => (p.name || "").trim())
+          .map((p) => ({
+            name: p.name || "",
+            phone: p.phone || "",
+            gender: normalizeGender(p.gender || ""),
+            sat: p.sat,
+            sun: p.sun,
+          }));
+
+        if (extractedEvents.length) {
+          draft.events = extractedEvents;
+        }
+
+        if (extractedPeople.length) {
+          draft.people = extractedPeople;
+        }
+
+        if (draft.people.length || draft.events.length) {
+          draft.lastActionType = "registration";
+          draft.updatedAt = Date.now();
+        }
+      }
+    }
+
+    draft.people = dedupePeople(draft.people);
+
+    // Fallback: if AI weak, build registration action from detected month + saved people
+    const fallbackEvents = detectEventsFromMessage(messageText);
+    const fallbackPeople = dedupePeople(draft.people || []).filter((p) => (p.name || "").trim());
+
+    let finalActions = [...actions];
+
+    if (!finalActions.length && (fallbackEvents.length || fallbackPeople.length)) {
+      finalActions.push({
+        type: "registration",
+        events: fallbackEvents,
+        people: fallbackPeople,
+      });
+    }
+
+    if (!finalActions.length) {
       console.log("No actions extracted.");
       return;
     }
 
-    for (const rawAction of actions) {
+    for (const rawAction of finalActions) {
       const type = String(rawAction.type || "").toLowerCase();
 
       if (type === "registration") {
@@ -661,15 +806,16 @@ client.on("message", async (msg) => {
         const finalEvents = extractedEvents.length ? extractedEvents : draft.events;
         const finalPeople = extractedPeople.length ? extractedPeople : draft.people;
 
-        if (extractedEvents.length) {
-          draft.events = extractedEvents;
+        if (finalEvents.length) {
+          draft.events = finalEvents;
         }
 
-        if (extractedPeople.length) {
-          draft.people = extractedPeople;
+        if (finalPeople.length) {
+          draft.people = finalPeople;
         }
 
         draft.people = dedupePeople(draft.people);
+        draft.lastActionType = "registration";
         draft.updatedAt = Date.now();
 
         const actionToApply = {
@@ -692,9 +838,6 @@ client.on("message", async (msg) => {
 
           const latest = await getSheetRows();
           existingRows = latest.rows;
-
-          draft.lastActionType = "registration";
-          draft.updatedAt = Date.now();
         } else {
           console.log("No registration rows added.");
         }
