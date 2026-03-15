@@ -399,6 +399,8 @@ Rules:
     { "type": "other" }
   ]
 }
+23. If the date written in the message is like “21-22日”， “18-19日”， then return "YES" to both days
+24. If a registration message clearly contains a person name and event/date but no phone number, still extract the person and leave phone as an empty string.
 
 Message:
 ${messageText}
