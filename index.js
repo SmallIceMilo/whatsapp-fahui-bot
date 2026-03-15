@@ -368,39 +368,39 @@ ${JSON.stringify(context, null, 2)}
 Rules:
 1. Support Chinese and English.
 2. Preserve names exactly as written. Do not translate names.
-3. Resolve references using Recent sender context, including:
-   "以上三位", "上述三位", "这三位", "same people", "the above people".
+3. Resolve references using Recent sender context, including phrases like "以上三位", "上述三位", "这三位", "same people", and "the above people".
 4. If a message lists multiple people, extract all of them.
 5. Numbered entries like "2) name / phone" are separate people.
 6. If a message says "全部女性", apply Female to all listed people.
 7. Extract exact date whenever possible.
 8. If year is not stated, assume current year ${currentYear}.
-9. Set "event" to the English month name based on eventDate if a date exists.
-10. If the event date is a Saturday, set sat=true sun=false.
-11. If the event date is a Sunday, set sat=false sun=true.
-12. If date is not weekend-specific and no clear day info is given, set sat=null sun=null.
-13. If message is only testing, return type "other".
+9. If eventDate exists, set event to the English month name based on eventDate.
+10. If the event date is a Saturday, set sat=true and sun=false.
+11. If the event date is a Sunday, set sat=false and sun=true.
+12. If the date is not weekend-specific and no clear day info is given, set sat=null and sun=null.
+13. If the message is only testing, return type "other".
 14. For cancellation, include person names whenever possible.
 15. Do not invent names or phone numbers.
 16. If one phone number clearly belongs to one person, keep it with that person only.
-17. If a message already registered the people for an earlier date, and a later message refers to them with phrases like "以上三位", "上述三位", "这三位", "same people", or similar, reuse that same group from context and register them for the new date too.
-18. If an action is registration, try hard to return both event and eventDate when date exists.
-19. If the message contains sections related to memorial tablets such as:
-   "牌位", "婴灵牌位", "往生莲位", "历代祖先莲位", "消灾", "冤亲债主",
-   these sections contain deceased names or spiritual dedications, NOT event registrants.
-
-20. Names listed under these sections must NOT be extracted as people for registration.
-
-21. Only extract people as registrants if they are clearly applying, registering, or attending an event (报名, 参加, register, attend, etc).
-
-22. If the message is purely about memorial tablet entries (牌位填写), return:
+17. If a message already registered people for an earlier date, and a later message refers to them with phrases like "以上三位", "上述三位", "这三位", "same people", or similar, reuse that same group from context and register them for the new date too.
+18. If an action is registration and a date exists, try hard to return both event and eventDate.
+19. If the message contains sections related to memorial tablets such as "牌位", "婴灵牌位", "往生莲位", "历代祖先莲位", "消灾", or "冤亲债主", these sections contain deceased names or spiritual dedications, not event registrants.
+20. Names listed under memorial tablet sections must not be extracted as people for registration.
+21. Only extract people as registrants if they are clearly applying, registering, or attending an event, such as "报名", "参加", "register", or "attend".
+22. If the message is purely about memorial tablet entries or tablet form filling, return:
 {
   "actions": [
     { "type": "other" }
   ]
 }
-23. If the date written in the message is like “21-22日”， “18-19日”， then return "YES" to both days
+23. If the date written in the message is like "21-22日", "18-19日", or another two-day range within the same event month, set sat=true and sun=true.
 24. If a registration message clearly contains a person name and event/date but no phone number, still extract the person and leave phone as an empty string.
+25. If a message registers for an event by mentioning only the month, for example "March 法会", "April 佛一", "May fahui", or "报名三月法会", without a specific date, interpret it as registering for the whole month's event. In this case:
+- event = that month
+- eventDate = null
+- sat = true
+- sun = true
+This means the person intends to attend both Saturday and Sunday sessions of that month's event.
 
 Message:
 ${messageText}
