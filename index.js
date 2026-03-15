@@ -446,7 +446,20 @@ ${messageText}
   }
 }
 
-function buildRegistrationRows({ action, senderWA, senderPhone, existingRows }) {
+async function updateExistingRegistrationRow(rowNumber, newSat, newSun) {
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SHEET_ID,
+    range: `${SHEET_NAME}!G${rowNumber}:H${rowNumber}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: {
+      values: [[newSat, newSun]],
+    },
+  });
+
+  console.log(`Updated row ${rowNumber} with Sat=${newSat}, Sun=${newSun}`);
+}
+
+async function buildRegistrationRows({ action, senderWA, senderPhone, existingRows }) {
   const rowsToAdd = [];
   const people = dedupePeople(action.people || []).filter((p) => (p.name || "").trim());
 
@@ -477,17 +490,26 @@ function buildRegistrationRows({ action, senderWA, senderPhone, existingRows }) 
       ? dateDays.sun
       : normalizeYesNoFromBoolOrString(person.sun, "YES");
 
-    const duplicate = existingRows.some(
-      (r) =>
-        String(r.Event).trim() === event &&
-        String(r.Name).trim() === name &&
-        String(r.Sender_phone).trim() === senderPhone
-    );
+    const existingRow = existingRows.find(
+  (r) =>
+    String(r.Event).trim() === event &&
+    String(r.Name).trim() === name &&
+    String(r.Sender_phone).trim() === senderPhone
+);
 
-    if (duplicate) {
-      console.log(`Duplicate skipped: ${event} | ${name} | ${senderPhone}`);
-      continue;
-    }
+if (existingRow) {
+
+  let newSat = String(existingRow.Sat || "").trim() || "NO";
+  let newSun = String(existingRow.Sun || "").trim() || "NO";
+
+  if (sat === "YES") newSat = "YES";
+  if (sun === "YES") newSun = "YES";
+
+  await updateExistingRegistrationRow(existingRow.rowNumber, newSat, newSun);
+
+  console.log(`Updated existing registration for ${name}`);
+  continue;
+}
 
     rowsToAdd.push([
       getTimestamp(),
