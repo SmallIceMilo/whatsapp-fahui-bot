@@ -651,32 +651,32 @@ client.on("message", async (msg) => {
       const type = String(rawAction.type || "").toLowerCase();
 
       if (type === "registration") {
-        const action = {
-          ...rawAction,
-          event: normalizeEvent(rawAction.event || ""),
-          eventDate: (rawAction.eventDate || "").trim(),
-          people: dedupePeople(rawAction.people || []),
-        };
+  const action = {
+    ...rawAction,
+    event: normalizeEvent(rawAction.event || ""),
+    eventDate: (rawAction.eventDate || "").trim(),
+    people: dedupePeople(rawAction.people || []),
+  };
 
-        const rowsToAdd = buildRegistrationRows({
-          action,
-          senderWA,
-          senderPhone,
-          existingRows,
-        });
+  const rowsToAdd = await buildRegistrationRows({
+    action,
+    senderWA,
+    senderPhone,
+    existingRows,
+  });
 
-        if (rowsToAdd.length) {
-          await appendRows(rowsToAdd);
-          totalAdded += rowsToAdd.length;
+  if (rowsToAdd.length) {
+    await appendRows(rowsToAdd);
+    totalAdded += rowsToAdd.length;
 
-          const latest = await getSheetRows();
-          existingRows = latest.rows;
-        } else {
-          console.log("No registration rows added.");
-        }
+    const latest = await getSheetRows();
+    existingRows = latest.rows;
+  } else {
+    console.log("No registration rows added.");
+  }
 
-        updateContextFromRegistration(context, action);
-      } else if (type === "cancellation") {
+  updateContextFromRegistration(context, action);
+} else if (type === "cancellation") {
         const action = {
           ...rawAction,
           event: normalizeEvent(rawAction.event || ""),
