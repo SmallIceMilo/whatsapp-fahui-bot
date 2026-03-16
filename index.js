@@ -267,7 +267,7 @@ function getOrCreateContext(senderKey) {
 async function getSheetRows() {
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: `${SHEET_NAME}!A:I`,
+    range: `${SHEET_NAME}!A:J`,
   });
 
   const rows = res.data.values || [];
@@ -295,7 +295,7 @@ async function appendRows(newRows) {
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: SHEET_ID,
-    range: `${SHEET_NAME}!A:I`,
+    range: `${SHEET_NAME}!A:J`,
     valueInputOption: "USER_ENTERED",
     requestBody: {
       values: newRows,
