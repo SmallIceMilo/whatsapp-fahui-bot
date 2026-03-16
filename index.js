@@ -275,17 +275,18 @@ async function getSheetRows() {
 
   const headers = rows[0];
   const dataRows = rows.slice(1).map((row, idx) => ({
-    rowNumber: idx + 2,
-    Timestamp: row[0] || "",
-    Event: row[1] || "",
-    SenderWA: row[2] || "",
-    Name: row[3] || "",
-    Phone: row[4] || "",
-    Gender: row[5] || "",
-    Sat: row[6] || "",
-    Sun: row[7] || "",
-    Sender_phone: row[8] || "",
-  }));
+  rowNumber: idx + 2,
+  Timestamp: row[0] || "",
+  Event: row[1] || "",
+  EventDate: row[2] || "",
+  SenderWA: row[3] || "",
+  Name: row[4] || "",
+  Phone: row[5] || "",
+  Gender: row[6] || "",
+  Sat: row[7] || "",
+  Sun: row[8] || "",
+  Sender_phone: row[9] || "",
+}));
 
   return { headers, rows: dataRows };
 }
