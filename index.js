@@ -128,69 +128,53 @@ function normalizeEvent(event) {
     january: "January",
     jan: "January",
     "一月": "January",
+
     february: "February",
     feb: "February",
     "二月": "February",
+
     march: "March",
     mar: "March",
     "三月": "March",
+
     april: "April",
     apr: "April",
     "四月": "April",
+
     may: "May",
     "五月": "May",
+
     june: "June",
     jun: "June",
     "六月": "June",
+
     july: "July",
     jul: "July",
     "七月": "July",
+
     august: "August",
     aug: "August",
     "八月": "August",
+
     september: "September",
     sep: "September",
     sept: "September",
     "九月": "September",
+
     october: "October",
     oct: "October",
     "十月": "October",
+
     november: "November",
     nov: "November",
     "十一月": "November",
+
     december: "December",
     dec: "December",
     "十二月": "December",
   };
 
   return map[e] || String(event).trim();
-}
-
-function monthNameFromIsoDate(isoDate) {
-  if (!isoDate) return "";
-  const d = new Date(`${isoDate}T00:00:00`);
-  if (Number.isNaN(d.getTime())) return "";
-
-  const months = [
-    "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December",
-  ];
-
-  return months[d.getMonth()];
-}
-
-function getSatSunFromIsoDate(isoDate) {
-  if (!isoDate) return { sat: "YES", sun: "YES" };
-
-  const d = new Date(`${isoDate}T00:00:00`);
-  if (Number.isNaN(d.getTime())) return { sat: "YES", sun: "YES" };
-
-  const weekday = d.getDay(); // 0=Sun, 6=Sat
-
-  if (weekday === 6) return { sat: "YES", sun: "NO" };
-  if (weekday === 0) return { sat: "NO", sun: "YES" };
-
-  return { sat: "YES", sun: "YES" };
 }
 
 function normalizeYesNoFromBoolOrString(value, defaultValue = "YES") {
@@ -255,7 +239,6 @@ function getOrCreateContext(senderKey) {
     pendingContexts[senderKey] = {
       lastPeople: [],
       lastEvent: "",
-      lastEventDate: "",
       lastActionType: "",
       updatedAt: Date.now(),
     };
@@ -264,10 +247,13 @@ function getOrCreateContext(senderKey) {
   return pendingContexts[senderKey];
 }
 
+// =========================
+// GOOGLE SHEETS
+// =========================
 async function getSheetRows() {
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: `${SHEET_NAME}!A:J`,
+    range: `${SHEET_NAME}!A:I`,
   });
 
   const rows = res.data.values || [];
@@ -275,18 +261,17 @@ async function getSheetRows() {
 
   const headers = rows[0];
   const dataRows = rows.slice(1).map((row, idx) => ({
-  rowNumber: idx + 2,
-  Timestamp: row[0] || "",
-  Event: row[1] || "",
-  EventDate: row[2] || "",
-  SenderWA: row[3] || "",
-  Name: row[4] || "",
-  Phone: row[5] || "",
-  Gender: row[6] || "",
-  Sat: row[7] || "",
-  Sun: row[8] || "",
-  Sender_phone: row[9] || "",
-}));
+    rowNumber: idx + 2,
+    Timestamp: row[0] || "",
+    Event: row[1] || "",
+    SenderWA: row[2] || "",
+    Name: row[3] || "",
+    Phone: row[4] || "",
+    Gender: row[5] || "",
+    Sat: row[6] || "",
+    Sun: row[7] || "",
+    Sender_phone: row[8] || "",
+  }));
 
   return { headers, rows: dataRows };
 }
@@ -296,7 +281,7 @@ async function appendRows(newRows) {
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: SHEET_ID,
-    range: `${SHEET_NAME}!A:J`,
+    range: `${SHEET_NAME}!A:I`,
     valueInputOption: "USER_ENTERED",
     requestBody: {
       values: newRows,
@@ -332,9 +317,23 @@ async function deleteRowsByNumber(rowNumbers) {
   return rowNumbers.length;
 }
 
-async function callOpenAIForExtraction(messageText, context = {}) {
-  const currentYear = getCurrentYear();
+async function updateExistingRegistrationRow(rowNumber, newSat, newSun) {
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SHEET_ID,
+    range: `${SHEET_NAME}!G${rowNumber}:H${rowNumber}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: {
+      values: [[newSat, newSun]],
+    },
+  });
 
+  console.log(`Updated row ${rowNumber} with Sat=${newSat}, Sun=${newSun}`);
+}
+
+// =========================
+// OPENAI EXTRACTION
+// =========================
+async function callOpenAIForExtraction(messageText, context = {}) {
   const prompt = `
 You extract registration actions from WhatsApp messages for event sign-ups.
 
@@ -349,11 +348,10 @@ Schema:
     {
       "type": "registration" | "cancellation" | "update" | "other",
       "event": "March",
-      "eventDate": "${currentYear}-03-22",
       "people": [
         {
-          "name": "蔡雅娇",
-          "phone": "96884298",
+          "name": "蔡美群 chai mee kwan",
+          "phone": "82296768",
           "gender": "Female",
           "sat": false,
           "sun": true
@@ -374,86 +372,25 @@ Rules:
 4. If a message lists multiple people, extract all of them.
 5. Numbered entries like "2) name / phone" are separate people.
 6. If a message says "全部女性", apply Female to all listed people.
-7. Extract exact date whenever possible.
-8. If year is not stated, assume current year ${currentYear}.
-9. If eventDate exists, set event to the English month name based on eventDate.
-
-DAY DETERMINATION PRIORITY
-(Specific information overrides general information)
-
-10. If a message explicitly mentions a weekday such as:
-"Saturday", "Sunday", "星期六", "星期日", "周六", "周日", "礼拜六", "礼拜日",
-then use that weekday to determine attendance days:
-
-- Saturday => sat=true, sun=false
-- Sunday => sat=false, sun=true
-
-11. If a message mentions two dates within the same month such as:
-"21-22日", "18-19日", "21及22", "21和22", "21/22",
-interpret it as attending both days of that event weekend:
-- sat=true
-- sun=true
-
-12. If the eventDate corresponds to a Saturday, set:
-- sat=true
-- sun=false
-
-13. If the eventDate corresponds to a Sunday, set:
-- sat=false
-- sun=true
-
-14. If a specific date exists but it is not clearly Saturday or Sunday, set:
-- sat=null
-- sun=null
-
-MONTH-ONLY REGISTRATION
-
-15. If a message registers for an event by mentioning only the month,
-for example:
-"March 法会", "April 佛一", "May fahui", "报名三月法会",
-and no specific date or weekday is mentioned,
-interpret it as registering for the whole month's event:
-
-- event = that month
-- eventDate = null
+7. If the month is stated, extract it as the event.
+8. If only the month is implied from context, reuse the last event from context.
+9. If a Chinese name and an English name appear together for the same applicant, treat them as the same person and combine into one name field, Chinese first then English.
+10. Do not invent names or phone numbers.
+11. If one phone number clearly belongs to the whole listed group, you may apply that same phone to all of them.
+12. If the message says Saturday only:
+- sat = true
+- sun = false
+13. If the message says Sunday only:
+- sat = false
+- sun = true
+14. If the message clearly says both days:
 - sat = true
 - sun = true
-
-This means the person intends to attend both Saturday and Sunday sessions.
-
-REGISTRATION LOGIC
-
-16. If a message already registered people for an earlier date, and a later message refers to them with phrases like "以上三位", "上述三位", "这三位", "same people", or similar, reuse that same group from context and register them for the new date too.
-
-17. If an action is registration and a date exists, try hard to return both event and eventDate.
-
-18. If a registration message clearly contains a person name and event/date but no phone number, still extract the person and leave phone as an empty string.
-
-PHONE RULES
-
-19. If one phone number clearly belongs to one person, keep it with that person only.
-
-MEMORIAL TABLET FILTERING
-
-20. If the message contains sections related to memorial tablets such as:
-"牌位", "婴灵牌位", "往生莲位", "历代祖先莲位", "消灾", or "冤亲债主",
-these sections contain deceased names or spiritual dedications, not event registrants.
-
-21. Names listed under memorial tablet sections must not be extracted as people for registration.
-
-22. Only extract people as registrants if they are clearly applying, registering, or attending an event, such as:
-"报名", "参加", "register", or "attend".
-
-23. If the message is purely about memorial tablet entries or tablet form filling, return:
-{
-  "actions": [
-    { "type": "other" }
-  ]
-}
-
-24. If a Chinese name and an English name appear together for the same applicant, treat them as the same person, not two separate people. Combine both names into the name field, with the Chinese name first followed by the English name.
-
-25. Do not invent names or phone numbers.
+15. If the message only mentions a month and sign-up, with no single-day restriction:
+- sat = true
+- sun = true
+16. Memorial tablet names such as 牌位, 往生莲位, 婴灵牌位, 历代祖先莲位, 消灾, 冤亲债主 are NOT registrants.
+17. If the message is not a real registration/cancellation/update, return type "other".
 
 Message:
 ${messageText}
@@ -499,29 +436,14 @@ ${messageText}
   }
 }
 
-async function updateExistingRegistrationRow(rowNumber, newSat, newSun) {
-  await sheets.spreadsheets.values.update({
-    spreadsheetId: SHEET_ID,
-    range: `${SHEET_NAME}!G${rowNumber}:H${rowNumber}`,
-    valueInputOption: "USER_ENTERED",
-    requestBody: {
-      values: [[newSat, newSun]],
-    },
-  });
-
-  console.log(`Updated row ${rowNumber} with Sat=${newSat}, Sun=${newSun}`);
-}
-
+// =========================
+// BUSINESS LOGIC
+// =========================
 async function buildRegistrationRows({ action, senderWA, senderPhone, existingRows }) {
   const rowsToAdd = [];
   const people = dedupePeople(action.people || []).filter((p) => (p.name || "").trim());
 
   let event = normalizeEvent(action.event || "");
-  const eventDate = (action.eventDate || "").trim();
-
-  if (!event && eventDate) {
-    event = monthNameFromIsoDate(eventDate);
-  }
 
   if (!event || !people.length) {
     return rowsToAdd;
@@ -534,17 +456,8 @@ async function buildRegistrationRows({ action, senderWA, senderPhone, existingRo
     const phone = (person.phone || sharedPhone || "").trim();
     const gender = normalizeGender(person.gender || "");
 
-    let sat;
-    let sun;
-
-    if (eventDate) {
-      const dateDays = getSatSunFromIsoDate(eventDate);
-      sat = dateDays.sat;
-      sun = dateDays.sun;
-    } else {
-      sat = normalizeYesNoFromBoolOrString(person.sat, "YES");
-      sun = normalizeYesNoFromBoolOrString(person.sun, "YES");
-    }
+    const sat = normalizeYesNoFromBoolOrString(person.sat, "YES");
+    const sun = normalizeYesNoFromBoolOrString(person.sun, "YES");
 
     let existingRow = null;
 
@@ -567,14 +480,12 @@ async function buildRegistrationRows({ action, senderWA, senderPhone, existingRo
     }
 
     if (existingRow) {
-      let newSat = String(existingRow.Sat || "").trim() || "NO";
-      let newSun = String(existingRow.Sun || "").trim() || "NO";
-
-      if (sat === "YES") newSat = "YES";
-      if (sun === "YES") newSun = "YES";
+      // overwrite directly
+      const newSat = sat;
+      const newSun = sun;
 
       await updateExistingRegistrationRow(existingRow.rowNumber, newSat, newSun);
-      console.log(`Updated existing registration for ${name}`);
+      console.log(`Updated existing registration for ${name} -> Sat=${newSat}, Sun=${newSun}`);
       continue;
     }
 
@@ -596,12 +507,6 @@ async function buildRegistrationRows({ action, senderWA, senderPhone, existingRo
 
 function findRowsForCancellation({ action, senderPhone, existingRows }) {
   let event = normalizeEvent(action.event || "");
-  const eventDate = (action.eventDate || "").trim();
-
-  if (!event && eventDate) {
-    event = monthNameFromIsoDate(eventDate);
-  }
-
   const people = dedupePeople(action.people || []).filter((p) => (p.name || "").trim());
 
   if (!event) {
@@ -652,13 +557,7 @@ function findRowsForCancellation({ action, senderPhone, existingRows }) {
 
 function updateContextFromRegistration(context, action) {
   const people = dedupePeople(action.people || []).filter((p) => (p.name || "").trim());
-
-  let event = normalizeEvent(action.event || "");
-  const eventDate = (action.eventDate || "").trim();
-
-  if (!event && eventDate) {
-    event = monthNameFromIsoDate(eventDate);
-  }
+  const event = normalizeEvent(action.event || "");
 
   if (people.length) {
     context.lastPeople = people;
@@ -666,10 +565,6 @@ function updateContextFromRegistration(context, action) {
 
   if (event) {
     context.lastEvent = event;
-  }
-
-  if (eventDate) {
-    context.lastEventDate = eventDate;
   }
 
   context.lastActionType = "registration";
@@ -720,18 +615,17 @@ client.on("message", async (msg) => {
       if (type === "registration") {
         const action = {
           ...rawAction,
-          event: normalizeEvent(rawAction.event || ""),
-          eventDate: (rawAction.eventDate || "").trim(),
+          event: normalizeEvent(rawAction.event || context.lastEvent || ""),
           people: dedupePeople(rawAction.people || []),
         };
 
         const rawText = messageText;
 
+        // Saturday only override
         if (
           /saturday|星期六|周六|礼拜六|禮拜六/i.test(rawText) &&
           !/sunday|星期日|星期天|周日|周天|礼拜天|礼拜日|禮拜天|禮拜日/i.test(rawText)
         ) {
-          action.eventDate = "";
           action.people = (action.people || []).map((p) => ({
             ...p,
             sat: true,
@@ -739,11 +633,11 @@ client.on("message", async (msg) => {
           }));
         }
 
+        // Sunday only override
         if (
           /sunday|星期日|星期天|周日|周天|礼拜天|礼拜日|禮拜天|禮拜日/i.test(rawText) &&
           !/saturday|星期六|周六|礼拜六|禮拜六/i.test(rawText)
         ) {
-          action.eventDate = "";
           action.people = (action.people || []).map((p) => ({
             ...p,
             sat: false,
@@ -751,8 +645,8 @@ client.on("message", async (msg) => {
           }));
         }
 
+        // both days override
         if (/(\d{1,2})\s*(及|和|-|\/|到)\s*(\d{1,2})/.test(rawText)) {
-          action.eventDate = "";
           action.people = (action.people || []).map((p) => ({
             ...p,
             sat: true,
@@ -781,8 +675,7 @@ client.on("message", async (msg) => {
       } else if (type === "cancellation") {
         const action = {
           ...rawAction,
-          event: normalizeEvent(rawAction.event || ""),
-          eventDate: (rawAction.eventDate || "").trim(),
+          event: normalizeEvent(rawAction.event || context.lastEvent || ""),
           people: dedupePeople(rawAction.people || []),
         };
 
