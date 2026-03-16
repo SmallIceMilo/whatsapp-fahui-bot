@@ -168,7 +168,7 @@ function normalizeEvent(event) {
 
 function monthNameFromIsoDate(isoDate) {
   if (!isoDate) return "";
-  const d = new Date(isoDate);
+  const d = new Date(`${isoDate}T00:00:00`);
   if (Number.isNaN(d.getTime())) return "";
 
   const months = [
@@ -444,16 +444,15 @@ these sections contain deceased names or spiritual dedications, not event regist
 "报名", "参加", "register", or "attend".
 
 23. If the message is purely about memorial tablet entries or tablet form filling, return:
-
 {
   "actions": [
     { "type": "other" }
   ]
 }
 
-OTHER
+24. If a Chinese name and an English name appear together for the same applicant, treat them as the same person, not two separate people. Use the Chinese name as the main name field unless clearly stated otherwise.
 
-24. Do not invent names or phone numbers.
+25. Do not invent names or phone numbers.
 
 Message:
 ${messageText}
@@ -528,41 +527,55 @@ async function buildRegistrationRows({ action, senderWA, senderPhone, existingRo
   }
 
   const sharedPhone = inferSharedPhone(people);
-  const dateDays = getSatSunFromIsoDate(eventDate);
 
   for (const person of people) {
     const name = (person.name || "").trim();
     const phone = (person.phone || sharedPhone || "").trim();
     const gender = normalizeGender(person.gender || "");
 
-    const sat = eventDate
-      ? dateDays.sat
-      : normalizeYesNoFromBoolOrString(person.sat, "YES");
+    let sat;
+    let sun;
 
-    const sun = eventDate
-      ? dateDays.sun
-      : normalizeYesNoFromBoolOrString(person.sun, "YES");
+    if (eventDate) {
+      const dateDays = getSatSunFromIsoDate(eventDate);
+      sat = dateDays.sat;
+      sun = dateDays.sun;
+    } else {
+      sat = normalizeYesNoFromBoolOrString(person.sat, "YES");
+      sun = normalizeYesNoFromBoolOrString(person.sun, "YES");
+    }
 
-    const existingRow = existingRows.find(
-  (r) =>
-    String(r.Event).trim() === event &&
-    String(r.Name).trim() === name &&
-    String(r.Sender_phone).trim() === senderPhone
-);
+    let existingRow = null;
 
-if (existingRow) {
+    if (phone) {
+      existingRow = existingRows.find(
+        (r) =>
+          String(r.Event).trim() === event &&
+          String(r.Name).trim() === name &&
+          String(r.Phone).trim() === phone
+      );
+    }
 
-  let newSat = String(existingRow.Sat || "").trim() || "NO";
-  let newSun = String(existingRow.Sun || "").trim() || "NO";
+    if (!existingRow) {
+      existingRow = existingRows.find(
+        (r) =>
+          String(r.Event).trim() === event &&
+          String(r.Name).trim() === name &&
+          String(r.Sender_phone).trim() === senderPhone
+      );
+    }
 
-  if (sat === "YES") newSat = "YES";
-  if (sun === "YES") newSun = "YES";
+    if (existingRow) {
+      let newSat = String(existingRow.Sat || "").trim() || "NO";
+      let newSun = String(existingRow.Sun || "").trim() || "NO";
 
-  await updateExistingRegistrationRow(existingRow.rowNumber, newSat, newSun);
+      if (sat === "YES") newSat = "YES";
+      if (sun === "YES") newSun = "YES";
 
-  console.log(`Updated existing registration for ${name}`);
-  continue;
-}
+      await updateExistingRegistrationRow(existingRow.rowNumber, newSat, newSun);
+      console.log(`Updated existing registration for ${name}`);
+      continue;
+    }
 
     rowsToAdd.push([
       getTimestamp(),
@@ -704,134 +717,67 @@ client.on("message", async (msg) => {
       const type = String(rawAction.type || "").toLowerCase();
 
       if (type === "registration") {
-  const action = {
-    ...rawAction,
-    event: normalizeEvent(rawAction.event || ""),
-    eventDate: (rawAction.eventDate || "").trim(),
-    people: dedupePeople(rawAction.people || []),
-  };
+        const action = {
+          ...rawAction,
+          event: normalizeEvent(rawAction.event || ""),
+          eventDate: (rawAction.eventDate || "").trim(),
+          people: dedupePeople(rawAction.people || []),
+        };
 
-  // =========================
-  // Safety fix for day detection
-  // =========================
-  const rawText = messageText;
+        const rawText = messageText;
 
-  if (
-    /saturday|星期六|周六|礼拜六|禮拜六/i.test(rawText) &&
-    !/sunday|星期日|星期天|周日|周天|礼拜天|礼拜日|禮拜天|禮拜日/i.test(rawText)
-  ) {
-    action.people = (action.people || []).map((p) => ({
-      ...p,
-      sat: true,
-      sun: false,
-    }));
-  }
+        if (
+          /saturday|星期六|周六|礼拜六|禮拜六/i.test(rawText) &&
+          !/sunday|星期日|星期天|周日|周天|礼拜天|礼拜日|禮拜天|禮拜日/i.test(rawText)
+        ) {
+          action.eventDate = "";
+          action.people = (action.people || []).map((p) => ({
+            ...p,
+            sat: true,
+            sun: false,
+          }));
+        }
 
-  if (
-    /sunday|星期日|星期天|周日|周天|礼拜天|礼拜日|禮拜天|禮拜日/i.test(rawText) &&
-    !/saturday|星期六|周六|礼拜六|禮拜六/i.test(rawText)
-  ) {
-    action.people = (action.people || []).map((p) => ({
-      ...p,
-      sat: false,
-      sun: true,
-    }));
-  }
+        if (
+          /sunday|星期日|星期天|周日|周天|礼拜天|礼拜日|禮拜天|禮拜日/i.test(rawText) &&
+          !/saturday|星期六|周六|礼拜六|禮拜六/i.test(rawText)
+        ) {
+          action.eventDate = "";
+          action.people = (action.people || []).map((p) => ({
+            ...p,
+            sat: false,
+            sun: true,
+          }));
+        }
 
-  if (
-    /(\d{1,2})\s*(及|和|-|\/|到)\s*(\d{1,2})/.test(rawText)
-  ) {
-    action.people = (action.people || []).map((p) => ({
-      ...p,
-      sat: true,
-      sun: true,
-    }));
-  }
+        if (/(\d{1,2})\s*(及|和|-|\/|到)\s*(\d{1,2})/.test(rawText)) {
+          action.eventDate = "";
+          action.people = (action.people || []).map((p) => ({
+            ...p,
+            sat: true,
+            sun: true,
+          }));
+        }
 
-  const rowsToAdd = await buildRegistrationRows({
-    action,
-    senderWA,
-    senderPhone,
-    existingRows,
-  });
+        const rowsToAdd = await buildRegistrationRows({
+          action,
+          senderWA,
+          senderPhone,
+          existingRows,
+        });
 
-  if (rowsToAdd.length) {
-    await appendRows(rowsToAdd);
-    totalAdded += rowsToAdd.length;
+        if (rowsToAdd.length) {
+          await appendRows(rowsToAdd);
+          totalAdded += rowsToAdd.length;
 
-    const latest = await getSheetRows();
-    existingRows = latest.rows;
-  } else {
-    console.log("No registration rows added.");
-  }
+          const latest = await getSheetRows();
+          existingRows = latest.rows;
+        } else {
+          console.log("No registration rows added.");
+        }
 
-  updateContextFromRegistration(context, action);
-}
-
-  // =========================
-  // Safety fix for day detection
-  // =========================
-
-  const rawText = messageText;
-
-  if (
-    /saturday|星期六|周六|礼拜六|禮拜六/i.test(rawText) &&
-    !/sunday|星期日|星期天|周日|周天|礼拜天|礼拜日|禮拜天|禮拜日/i.test(rawText)
-  ) {
-    action.people = (action.people || []).map((p) => ({
-      ...p,
-      sat: true,
-      sun: false,
-    }));
-  }
-
-  if (
-    /sunday|星期日|星期天|周日|周天|礼拜天|礼拜日|禮拜天|禮拜日/i.test(rawText) &&
-    !/saturday|星期六|周六|礼拜六|禮拜六/i.test(rawText)
-  ) {
-    action.people = (action.people || []).map((p) => ({
-      ...p,
-      sat: false,
-      sun: true,
-    }));
-  }
-
-  if (
-    /(\d{1,2})\s*(及|和|-|\/)\s*(\d{1,2})/.test(rawText)
-  ) {
-    action.people = (action.people || []).map((p) => ({
-      ...p,
-      sat: true,
-      sun: true,
-    }));
-  }
-
-  const rowsToAdd = await buildRegistrationRows({
-    action,
-    senderWA,
-    senderPhone,
-    existingRows,
-  });
-
-  const rowsToAdd = await buildRegistrationRows({
-    action,
-    senderWA,
-    senderPhone,
-    existingRows,
-  });
-
-  if (rowsToAdd.length) {
-    await appendRows(rowsToAdd);
-    totalAdded += rowsToAdd.length;
-
-    const latest = await getSheetRows();
-    existingRows = latest.rows;
-  } else {
-    console.log("No registration rows added.");
-  }
-
-  updateContextFromRegistration(context, action);
-} else if (type === "cancellation") {
+        updateContextFromRegistration(context, action);
+      } else if (type === "cancellation") {
         const action = {
           ...rawAction,
           event: normalizeEvent(rawAction.event || ""),
