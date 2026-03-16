@@ -450,7 +450,7 @@ these sections contain deceased names or spiritual dedications, not event regist
   ]
 }
 
-24. If a Chinese name and an English name appear together for the same applicant, treat them as the same person, not two separate people. Use the Chinese name as the main name field unless clearly stated otherwise.
+24. If a Chinese name and an English name appear together for the same applicant, treat them as the same person, not two separate people. Combine both names into the name field, with the Chinese name first followed by the English name.
 
 25. Do not invent names or phone numbers.
 
