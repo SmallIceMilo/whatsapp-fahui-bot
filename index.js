@@ -704,13 +704,69 @@ client.on("message", async (msg) => {
       const type = String(rawAction.type || "").toLowerCase();
 
       if (type === "registration") {
-
   const action = {
     ...rawAction,
     event: normalizeEvent(rawAction.event || ""),
     eventDate: (rawAction.eventDate || "").trim(),
     people: dedupePeople(rawAction.people || []),
   };
+
+  // =========================
+  // Safety fix for day detection
+  // =========================
+  const rawText = messageText;
+
+  if (
+    /saturday|星期六|周六|礼拜六|禮拜六/i.test(rawText) &&
+    !/sunday|星期日|星期天|周日|周天|礼拜天|礼拜日|禮拜天|禮拜日/i.test(rawText)
+  ) {
+    action.people = (action.people || []).map((p) => ({
+      ...p,
+      sat: true,
+      sun: false,
+    }));
+  }
+
+  if (
+    /sunday|星期日|星期天|周日|周天|礼拜天|礼拜日|禮拜天|禮拜日/i.test(rawText) &&
+    !/saturday|星期六|周六|礼拜六|禮拜六/i.test(rawText)
+  ) {
+    action.people = (action.people || []).map((p) => ({
+      ...p,
+      sat: false,
+      sun: true,
+    }));
+  }
+
+  if (
+    /(\d{1,2})\s*(及|和|-|\/|到)\s*(\d{1,2})/.test(rawText)
+  ) {
+    action.people = (action.people || []).map((p) => ({
+      ...p,
+      sat: true,
+      sun: true,
+    }));
+  }
+
+  const rowsToAdd = await buildRegistrationRows({
+    action,
+    senderWA,
+    senderPhone,
+    existingRows,
+  });
+
+  if (rowsToAdd.length) {
+    await appendRows(rowsToAdd);
+    totalAdded += rowsToAdd.length;
+
+    const latest = await getSheetRows();
+    existingRows = latest.rows;
+  } else {
+    console.log("No registration rows added.");
+  }
+
+  updateContextFromRegistration(context, action);
+}
 
   // =========================
   // Safety fix for day detection
