@@ -646,13 +646,13 @@ client.on("message", async (msg) => {
         }
 
         // both days override
-        if (/(\d{1,2})\s*(及|和|-|\/|到)\s*(\d{1,2})/.test(rawText)) {
-          action.people = (action.people || []).map((p) => ({
-            ...p,
-            sat: true,
-            sun: true,
-          }));
-        }
+        if (/(\d{1,2})\s*(及|和|-|到)\s*(\d{1,2})/.test(rawText)) {
+  action.people = (action.people || []).map((p) => ({
+    ...p,
+    sat: true,
+    sun: true,
+  }));
+}
 
         const rowsToAdd = await buildRegistrationRows({
           action,
