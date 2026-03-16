@@ -393,7 +393,7 @@ Rules:
     { "type": "other" }
   ]
 }
-23. If the date written in the message is like "21-22日", "18-19日", or another two-day range within the same event month, set sat=true and sun=true.
+23. If the date written in the message is like "21-22日", "18-19日", "21及22" or another two-day range within the same event month, set sat=true and sun=true.
 24. If a registration message clearly contains a person name and event/date but no phone number, still extract the person and leave phone as an empty string.
 25. If a message registers for an event by mentioning only the month, for example "March 法会", "April 佛一", "May fahui", or "报名三月法会", without a specific date, interpret it as registering for the whole month's event. In this case:
 - event = that month
