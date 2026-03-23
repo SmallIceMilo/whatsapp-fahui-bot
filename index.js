@@ -171,6 +171,7 @@ function findRowsForCancellation({ action, senderPhone, existingRows }) {
 }
 
 client.on("message", async (msg) => {
+  console.log("Message received:", msg.from, msg.body);
   try {
     if (!msg || !msg.body) return;
     if (msg.from === "status@broadcast") return;
