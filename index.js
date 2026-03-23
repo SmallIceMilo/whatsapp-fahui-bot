@@ -14,6 +14,7 @@ const {
   inferSharedPhone,
   getSingaporeTimestamp,
   applyDayOverridesFromRawText,
+  applySpecificDateOverrides,
 } = require("./utils/helpers");
 
 const { resolveEvent } = require("./utils/eventResolver");
