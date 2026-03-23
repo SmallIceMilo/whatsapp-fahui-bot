@@ -136,6 +136,44 @@ function applyDayOverridesFromRawText(action, rawText) {
   return action;
 }
 
+function applySpecificDateOverrides(action, rawText) {
+  if (!action || !Array.isArray(action.people)) return action;
+
+  const text = rawText || "";
+
+  const isApr18 =
+    /4月\s*18日/.test(text) ||
+    /\b4\/18\b/.test(text) ||
+    /\b18\s*apr(?:il)?\b/i.test(text) ||
+    /\bapr(?:il)?\s*18\b/i.test(text);
+
+  const isApr19 =
+    /4月\s*19日/.test(text) ||
+    /\b4\/19\b/.test(text) ||
+    /\b19\s*apr(?:il)?\b/i.test(text) ||
+    /\bapr(?:il)?\s*19\b/i.test(text);
+
+  if (isApr18) {
+    action.people = action.people.map((p) => ({
+      ...p,
+      sat: true,
+      sun: false,
+    }));
+    return action;
+  }
+
+  if (isApr19) {
+    action.people = action.people.map((p) => ({
+      ...p,
+      sat: false,
+      sun: true,
+    }));
+    return action;
+  }
+
+  return action;
+}
+
 module.exports = {
   stripCodeFences,
   getSenderPhone,
@@ -147,4 +185,5 @@ module.exports = {
   inferSharedPhone,
   getSingaporeTimestamp,
   applyDayOverridesFromRawText,
+  applySpecificDateOverrides,
 };
