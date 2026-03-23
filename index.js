@@ -223,6 +223,8 @@ client.on("message", async (msg) => {
 
         action = applyDayOverridesFromRawText(action, messageText);
 
+        action = applySpecificDateOverrides(action, messageText);
+
         const rowsToAdd = await buildRegistrationRows({
           action,
           senderWA,
