@@ -1,40 +1,40 @@
-const pendingContexts = {};
 const { Client, LocalAuth } = require("whatsapp-web.js");
-const { google } = require("googleapis");
+const config = require("./config");
 
-// =========================
-// CONFIG
-// =========================
-const SHEET_ID = process.env.GOOGLE_SHEET_ID;
-const SHEET_NAME = process.env.GOOGLE_SHEET_NAME || "Sheet1";
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const {
+  stripCodeFences,
+  getSenderPhone,
+  getSenderWA,
+  normalizeGender,
+  normalizeYesNoFromBoolOrString,
+  isTestOnlyMessage,
+  dedupePeople,
+  inferSharedPhone,
+  getSingaporeTimestamp,
+  applyDayOverridesFromRawText,
+} = require("./utils/helpers");
 
-if (!SHEET_ID) {
+const { resolveEvent } = require("./utils/eventResolver");
+const { getOrCreateContext, updateContextFromRegistration } = require("./utils/contextStore");
+
+const {
+  getRegistrationRows,
+  appendRegistrationRows,
+  updateExistingRegistrationRow,
+  deleteRowsByNumber,
+  getDefaultEventFromFactTable,
+} = require("./services/googleSheetsService");
+
+const { callOpenAIForExtraction } = require("./services/openaiService");
+
+if (!config.sheetId) {
   throw new Error("Missing GOOGLE_SHEET_ID in environment variables.");
 }
-if (!OPENAI_API_KEY) {
+
+if (!config.openAiApiKey) {
   throw new Error("Missing OPENAI_API_KEY in environment variables.");
 }
 
-const serviceAccount = {
-  type: "service_account",
-  project_id: process.env.GOOGLE_PROJECT_ID,
-  private_key_id: process.env.GOOGLE_PRIVATE_KEY_ID,
-  private_key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
-  client_email: process.env.GOOGLE_CLIENT_EMAIL,
-  client_id: process.env.GOOGLE_CLIENT_ID,
-};
-
-const auth = new google.auth.GoogleAuth({
-  credentials: serviceAccount,
-  scopes: ["https://www.googleapis.com/auth/spreadsheets"],
-});
-
-const sheets = google.sheets({ version: "v4", auth });
-
-// =========================
-// WHATSAPP CLIENT
-// =========================
 const client = new Client({
   authStrategy: new LocalAuth({
     dataPath: "/app/.wwebjs_auth",
@@ -72,380 +72,11 @@ client.on("disconnected", (reason) => {
   console.log("Client disconnected:", reason);
 });
 
-// =========================
-// HELPERS
-// =========================
-function getTimestamp() {
-  return new Date().toISOString();
-}
-
-function getCurrentYear() {
-  return new Date().getFullYear();
-}
-
-function getSenderPhone(msg) {
-  if (msg.from && msg.from.endsWith("@g.us")) {
-    return (msg.author || "").split("@")[0];
-  }
-
-  if (msg.from && msg.from.endsWith("@c.us")) {
-    return (msg.from || "").split("@")[0];
-  }
-
-  return "";
-}
-
-function getSenderWA(msg) {
-  if (msg.from && msg.from.endsWith("@g.us")) {
-    return msg.author || "";
-  }
-  return msg.from || "";
-}
-
-function stripCodeFences(text) {
-  if (!text) return "";
-  return text
-    .replace(/^```json\s*/i, "")
-    .replace(/^```\s*/i, "")
-    .replace(/\s*```$/i, "")
-    .trim();
-}
-
-function normalizeGender(gender) {
-  if (!gender) return "";
-  const g = String(gender).trim().toLowerCase();
-
-  if (["m", "male", "man", "boy", "男"].includes(g)) return "Male";
-  if (["f", "female", "woman", "girl", "女"].includes(g)) return "Female";
-  return String(gender).trim();
-}
-
-function normalizeEvent(event) {
-  if (!event) return "";
-  const e = String(event).trim().toLowerCase();
-
-  const map = {
-    january: "January",
-    jan: "January",
-    "一月": "January",
-
-    february: "February",
-    feb: "February",
-    "二月": "February",
-
-    march: "March",
-    mar: "March",
-    "三月": "March",
-
-    april: "April",
-    apr: "April",
-    "四月": "April",
-
-    may: "May",
-    "五月": "May",
-
-    june: "June",
-    jun: "June",
-    "六月": "June",
-
-    july: "July",
-    jul: "July",
-    "七月": "July",
-
-    august: "August",
-    aug: "August",
-    "八月": "August",
-
-    september: "September",
-    sep: "September",
-    sept: "September",
-    "九月": "September",
-
-    october: "October",
-    oct: "October",
-    "十月": "October",
-
-    november: "November",
-    nov: "November",
-    "十一月": "November",
-
-    december: "December",
-    dec: "December",
-    "十二月": "December",
-  };
-
-  return map[e] || String(event).trim();
-}
-
-function normalizeYesNoFromBoolOrString(value, defaultValue = "YES") {
-  if (value === true) return "YES";
-  if (value === false) return "NO";
-  if (value == null || value === "") return defaultValue;
-
-  const v = String(value).trim().toLowerCase();
-  if (["yes", "y", "true"].includes(v)) return "YES";
-  if (["no", "n", "false"].includes(v)) return "NO";
-
-  return defaultValue;
-}
-
-function isTestOnlyMessage(text) {
-  const t = String(text || "").trim().toLowerCase();
-  return ["test", "testing", "测试", "測試", "測试"].includes(t);
-}
-
-function dedupePeople(people) {
-  const seen = new Set();
-  const result = [];
-
-  for (const p of people || []) {
-    const key = `${(p.name || "").trim()}|${(p.phone || "").trim()}|${(p.gender || "").trim()}`;
-    if (!seen.has(key)) {
-      seen.add(key);
-      result.push({
-        name: (p.name || "").trim(),
-        phone: (p.phone || "").trim(),
-        gender: normalizeGender(p.gender || ""),
-        sat: p.sat,
-        sun: p.sun,
-      });
-    }
-  }
-
-  return result;
-}
-
-function inferSharedPhone(people) {
-  const phones = [...new Set((people || []).map((p) => (p.phone || "").trim()).filter(Boolean))];
-  return phones.length === 1 ? phones[0] : "";
-}
-
-function isContextExpired(context, maxMinutes = 60) {
-  if (!context || !context.updatedAt) return true;
-  return Date.now() - context.updatedAt > maxMinutes * 60 * 1000;
-}
-
-function cleanupExpiredContext(senderKey) {
-  const context = pendingContexts[senderKey];
-  if (context && isContextExpired(context)) {
-    delete pendingContexts[senderKey];
-  }
-}
-
-function getOrCreateContext(senderKey) {
-  cleanupExpiredContext(senderKey);
-
-  if (!pendingContexts[senderKey]) {
-    pendingContexts[senderKey] = {
-      lastPeople: [],
-      lastEvent: "",
-      lastActionType: "",
-      updatedAt: Date.now(),
-    };
-  }
-
-  return pendingContexts[senderKey];
-}
-
-// =========================
-// GOOGLE SHEETS
-// =========================
-async function getSheetRows() {
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: SHEET_ID,
-    range: `${SHEET_NAME}!A:I`,
-  });
-
-  const rows = res.data.values || [];
-  if (rows.length === 0) return { headers: [], rows: [] };
-
-  const headers = rows[0];
-  const dataRows = rows.slice(1).map((row, idx) => ({
-    rowNumber: idx + 2,
-    Timestamp: row[0] || "",
-    Event: row[1] || "",
-    SenderWA: row[2] || "",
-    Name: row[3] || "",
-    Phone: row[4] || "",
-    Gender: row[5] || "",
-    Sat: row[6] || "",
-    Sun: row[7] || "",
-    Sender_phone: row[8] || "",
-  }));
-
-  return { headers, rows: dataRows };
-}
-
-async function appendRows(newRows) {
-  if (!newRows.length) return 0;
-
-  await sheets.spreadsheets.values.append({
-    spreadsheetId: SHEET_ID,
-    range: `${SHEET_NAME}!A:I`,
-    valueInputOption: "USER_ENTERED",
-    requestBody: {
-      values: newRows,
-    },
-  });
-
-  console.log(`Added ${newRows.length} new row(s) to Google Sheet.`);
-  return newRows.length;
-}
-
-async function deleteRowsByNumber(rowNumbers) {
-  if (!rowNumbers.length) return 0;
-
-  const requests = rowNumbers
-    .sort((a, b) => b - a)
-    .map((rowNumber) => ({
-      deleteDimension: {
-        range: {
-          sheetId: 0,
-          dimension: "ROWS",
-          startIndex: rowNumber - 1,
-          endIndex: rowNumber,
-        },
-      },
-    }));
-
-  await sheets.spreadsheets.batchUpdate({
-    spreadsheetId: SHEET_ID,
-    requestBody: { requests },
-  });
-
-  console.log(`Deleted row(s): ${rowNumbers.join(", ")}`);
-  return rowNumbers.length;
-}
-
-async function updateExistingRegistrationRow(rowNumber, newSat, newSun) {
-  await sheets.spreadsheets.values.update({
-    spreadsheetId: SHEET_ID,
-    range: `${SHEET_NAME}!G${rowNumber}:H${rowNumber}`,
-    valueInputOption: "USER_ENTERED",
-    requestBody: {
-      values: [[newSat, newSun]],
-    },
-  });
-
-  console.log(`Updated row ${rowNumber} with Sat=${newSat}, Sun=${newSun}`);
-}
-
-// =========================
-// OPENAI EXTRACTION
-// =========================
-async function callOpenAIForExtraction(messageText, context = {}) {
-  const prompt = `
-You extract registration actions from WhatsApp messages for event sign-ups.
-
-Return STRICT JSON only.
-No markdown.
-No explanation.
-No text outside JSON.
-
-Schema:
-{
-  "actions": [
-    {
-      "type": "registration" | "cancellation" | "update" | "other",
-      "event": "March",
-      "people": [
-        {
-          "name": "蔡美群 chai mee kwan",
-          "phone": "82296768",
-          "gender": "Female",
-          "sat": false,
-          "sun": true
-        }
-      ]
-    }
-  ]
-}
-
-Recent sender context:
-${JSON.stringify(context, null, 2)}
-
-Rules:
-
-1. Support Chinese and English.
-2. Preserve names exactly as written. Do not translate names.
-3. Resolve references using Recent sender context, including phrases like "以上三位", "上述三位", "这三位", "same people", and "the above people".
-4. If a message lists multiple people, extract all of them.
-5. Numbered entries like "2) name / phone" are separate people.
-6. If a message says "全部女性", apply Female to all listed people.
-7. If the month is stated, extract it as the event.
-8. If only the month is implied from context, reuse the last event from context.
-9. If a Chinese name and an English name appear together for the same applicant, treat them as the same person and combine into one name field, Chinese first then English.
-10. Do not invent names or phone numbers.
-11. If one phone number clearly belongs to the whole listed group, you may apply that same phone to all of them.
-12. If the message says Saturday only:
-- sat = true
-- sun = false
-13. If the message says Sunday only:
-- sat = false
-- sun = true
-14. If the message clearly says both days:
-- sat = true
-- sun = true
-15. If the message only mentions a month and sign-up, with no single-day restriction:
-- sat = true
-- sun = true
-16. Memorial tablet names such as 牌位, 往生莲位, 婴灵牌位, 历代祖先莲位, 消灾, 冤亲债主 are NOT registrants.
-17. If the message is not a real registration/cancellation/update, return type "other".
-
-Message:
-${messageText}
-`.trim();
-
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${OPENAI_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: "gpt-4o-mini",
-      temperature: 0,
-      response_format: { type: "json_object" },
-      messages: [
-        {
-          role: "system",
-          content: "You are a precise JSON information extractor for event registration messages.",
-        },
-        {
-          role: "user",
-          content: prompt,
-        },
-      ],
-    }),
-  });
-
-  if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`OpenAI API error: ${response.status} ${errText}`);
-  }
-
-  const data = await response.json();
-  const content = data?.choices?.[0]?.message?.content || "";
-  const cleaned = stripCodeFences(content);
-
-  try {
-    return JSON.parse(cleaned);
-  } catch (err) {
-    console.error("Failed to parse AI JSON:", cleaned);
-    throw err;
-  }
-}
-
-// =========================
-// BUSINESS LOGIC
-// =========================
 async function buildRegistrationRows({ action, senderWA, senderPhone, existingRows }) {
   const rowsToAdd = [];
   const people = dedupePeople(action.people || []).filter((p) => (p.name || "").trim());
 
-  let event = normalizeEvent(action.event || "");
-
-  if (!event || !people.length) {
+  if (!action.event || !people.length) {
     return rowsToAdd;
   }
 
@@ -464,7 +95,7 @@ async function buildRegistrationRows({ action, senderWA, senderPhone, existingRo
     if (phone) {
       existingRow = existingRows.find(
         (r) =>
-          String(r.Event).trim() === event &&
+          String(r.Event).trim() === action.event &&
           String(r.Name).trim() === name &&
           String(r.Phone).trim() === phone
       );
@@ -473,25 +104,20 @@ async function buildRegistrationRows({ action, senderWA, senderPhone, existingRo
     if (!existingRow) {
       existingRow = existingRows.find(
         (r) =>
-          String(r.Event).trim() === event &&
+          String(r.Event).trim() === action.event &&
           String(r.Name).trim() === name &&
           String(r.Sender_phone).trim() === senderPhone
       );
     }
 
     if (existingRow) {
-      // overwrite directly
-      const newSat = sat;
-      const newSun = sun;
-
-      await updateExistingRegistrationRow(existingRow.rowNumber, newSat, newSun);
-      console.log(`Updated existing registration for ${name} -> Sat=${newSat}, Sun=${newSun}`);
+      await updateExistingRegistrationRow(existingRow.rowNumber, sat, sun);
       continue;
     }
 
     rowsToAdd.push([
-      getTimestamp(),
-      event,
+      getSingaporeTimestamp(),
+      action.event,
       senderWA,
       name,
       phone,
@@ -506,18 +132,9 @@ async function buildRegistrationRows({ action, senderWA, senderPhone, existingRo
 }
 
 function findRowsForCancellation({ action, senderPhone, existingRows }) {
-  let event = normalizeEvent(action.event || "");
   const people = dedupePeople(action.people || []).filter((p) => (p.name || "").trim());
 
-  if (!event) {
-    console.log("Cancellation skipped: no event identified.");
-    return [];
-  }
-
-  if (!people.length) {
-    console.log("Cancellation skipped: no person identified.");
-    return [];
-  }
+  if (!action.event || !people.length) return [];
 
   const rowsToDelete = [];
 
@@ -526,7 +143,7 @@ function findRowsForCancellation({ action, senderPhone, existingRows }) {
     const targetPhone = (person.phone || "").trim();
 
     let matches = existingRows.filter(
-      (r) => String(r.Event).trim() === event && String(r.Name).trim() === targetName
+      (r) => String(r.Event).trim() === action.event && String(r.Name).trim() === targetName
     );
 
     if (targetPhone) {
@@ -545,35 +162,12 @@ function findRowsForCancellation({ action, senderPhone, existingRows }) {
 
     if (matches.length === 1) {
       rowsToDelete.push(matches[0].rowNumber);
-    } else if (matches.length === 0) {
-      console.log(`No cancellation match found for ${event} | ${targetName}`);
-    } else {
-      console.log(`Ambiguous cancellation skipped for ${event} | ${targetName}. Matches: ${matches.length}`);
     }
   }
 
   return [...new Set(rowsToDelete)];
 }
 
-function updateContextFromRegistration(context, action) {
-  const people = dedupePeople(action.people || []).filter((p) => (p.name || "").trim());
-  const event = normalizeEvent(action.event || "");
-
-  if (people.length) {
-    context.lastPeople = people;
-  }
-
-  if (event) {
-    context.lastEvent = event;
-  }
-
-  context.lastActionType = "registration";
-  context.updatedAt = Date.now();
-}
-
-// =========================
-// MAIN MESSAGE HANDLER
-// =========================
 client.on("message", async (msg) => {
   try {
     if (!msg || !msg.body) return;
@@ -583,25 +177,18 @@ client.on("message", async (msg) => {
     const senderWA = getSenderWA(msg);
     const senderPhone = getSenderPhone(msg);
     const senderKey = senderWA || senderPhone;
-    const context = getOrCreateContext(senderKey);
 
-    console.log("RAW MESSAGE TEXT >>>", JSON.stringify(messageText));
-    console.log("SenderWA:", senderWA);
-    console.log("Sender_phone:", senderPhone);
-    console.log("Context before AI:", JSON.stringify(context, null, 2));
+    const context = getOrCreateContext(senderKey, config.contextExpiryMinutes);
 
     if (isTestOnlyMessage(messageText)) {
       console.log("Testing message detected. No sheet action taken.");
       return;
     }
 
-    let { rows: existingRows } = await getSheetRows();
-    let totalAdded = 0;
-    let totalDeleted = 0;
+    let { rows: existingRows } = await getRegistrationRows();
+    const defaultEventFromSheet = await getDefaultEventFromFactTable();
 
     const extraction = await callOpenAIForExtraction(messageText, context);
-    console.log("AI extraction:", JSON.stringify(extraction, null, 2));
-
     const actions = Array.isArray(extraction.actions) ? extraction.actions : [];
 
     if (!actions.length) {
@@ -609,65 +196,28 @@ client.on("message", async (msg) => {
       return;
     }
 
+    let totalAdded = 0;
+    let totalDeleted = 0;
+
     for (const rawAction of actions) {
       const type = String(rawAction.type || "").toLowerCase();
 
       if (type === "registration") {
-        const action = {
+        let action = {
           ...rawAction,
-          event: normalizeEvent(rawAction.event || context.lastEvent || ""),
           people: dedupePeople(rawAction.people || []),
         };
 
-        const rawText = messageText;
+        action.event = resolveEvent({
+          extractedEvent: rawAction.event,
+          messageText,
+          contextLastEvent: context.lastEvent,
+          defaultEventFromSheet,
+          defaultEventFallback: config.defaultEventFallback,
+          supportedEvents: config.supportedEvents,
+        });
 
-// ==========================
-// BOTH DAYS
-// ==========================
-if (/(\d{1,2})\s*(及|和|-|到)\s*(\d{1,2})/.test(rawText)) {
-  action.people = (action.people || []).map((p) => ({
-    ...p,
-    sat: true,
-    sun: true,
-  }));
-}
-
-// ==========================
-// SATURDAY ONLY
-// ==========================
-if (
-  /saturday|星期六|周六|礼拜六|禮拜六/i.test(rawText) &&
-  !/sunday|星期日|星期天|周日|周天|礼拜天|礼拜日|禮拜天|禮拜日/i.test(rawText)
-) {
-  action.people = (action.people || []).map((p) => ({
-    ...p,
-    sat: true,
-    sun: false,
-  }));
-}
-
-// ==========================
-// SUNDAY ONLY
-// ==========================
-if (
-  /sunday|星期日|星期天|周日|周天|礼拜天|礼拜日|禮拜天|禮拜日/i.test(rawText) &&
-  !/saturday|星期六|周六|礼拜六|禮拜六/i.test(rawText)
-) {
-  action.people = (action.people || []).map((p) => ({
-    ...p,
-    sat: false,
-    sun: true,
-  }));
-}
-
-        // both days override
-        if (/(\d{1,2})\s*(及|和|-|到)\s*(\d{1,2})/.test(rawText)) {
-  action.people = (action.people || []).map((p) => ({
-    ...p,
-    sat: true,
-    sun: true,
-  }));
-}
+        action = applyDayOverridesFromRawText(action, messageText);
 
         const rowsToAdd = await buildRegistrationRows({
           action,
@@ -677,20 +227,25 @@ if (
         });
 
         if (rowsToAdd.length) {
-          await appendRows(rowsToAdd);
+          await appendRegistrationRows(rowsToAdd);
           totalAdded += rowsToAdd.length;
 
-          const latest = await getSheetRows();
+          const latest = await getRegistrationRows();
           existingRows = latest.rows;
-        } else {
-          console.log("No registration rows added.");
         }
 
         updateContextFromRegistration(context, action);
       } else if (type === "cancellation") {
         const action = {
           ...rawAction,
-          event: normalizeEvent(rawAction.event || context.lastEvent || ""),
+          event: resolveEvent({
+            extractedEvent: rawAction.event,
+            messageText,
+            contextLastEvent: context.lastEvent,
+            defaultEventFromSheet,
+            defaultEventFallback: config.defaultEventFallback,
+            supportedEvents: config.supportedEvents,
+          }),
           people: dedupePeople(rawAction.people || []),
         };
 
@@ -704,24 +259,21 @@ if (
           await deleteRowsByNumber(rowsToDelete);
           totalDeleted += rowsToDelete.length;
 
-          const latest = await getSheetRows();
+          const latest = await getRegistrationRows();
           existingRows = latest.rows;
-        } else {
-          console.log("No cancellation rows deleted.");
         }
 
         context.lastActionType = "cancellation";
         context.updatedAt = Date.now();
       } else if (type === "update") {
-        console.log("Update intent detected. Not implemented yet. No action taken.");
+        console.log("Update intent detected. Not implemented yet.");
         context.lastActionType = "update";
         context.updatedAt = Date.now();
       } else {
-        console.log("Other / non-action message detected. No sheet action taken.");
+        console.log("Other / non-action message detected.");
       }
     }
 
-    console.log("Context after AI:", JSON.stringify(context, null, 2));
     console.log(`Done. Added: ${totalAdded}, Deleted: ${totalDeleted}`);
   } catch (error) {
     console.error("Error:", error);
