@@ -50,7 +50,7 @@ Rules:
 15. If the message only mentions sign-up with no day restriction, leave sat and sun as true.
 16. Memorial tablet names such as 牌位, 往生莲位, 婴灵牌位, 历代祖先莲位, 消灾, 冤亲债主 are NOT registrants.
 17. If the message is not a real registration/cancellation/update, return type "other".
-19. If a specific calendar date is mentioned, infer the correct weekday from that date.
+19. If a specific calendar date is mentioned, refer to the calendar and infer the correct weekday whether is it a saturday or sunday
 20. If the mentioned date is a Saturday session, set sat=true and sun=false.
 21. If the mentioned date is a Sunday session, set sat=false and sun=true.
 22. Do not set both days true when a single specific date is given.
