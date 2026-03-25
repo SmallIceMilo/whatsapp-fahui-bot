@@ -136,24 +136,95 @@ function applyDayOverridesFromRawText(action, rawText) {
   return action;
 }
 
-function applySpecificDateOverrides(action, rawText) {
-  if (!action || !Array.isArray(action.people)) return action;
-
+function extractMentionedDateParts(rawText) {
   const text = rawText || "";
 
-  const isApr18 =
-    /4月\s*18日/.test(text) ||
-    /\b4\/18\b/.test(text) ||
-    /\b18\s*apr(?:il)?\b/i.test(text) ||
-    /\bapr(?:il)?\s*18\b/i.test(text);
+  // Format: 4月19日 / 4月19号
+  let match = text.match(/(\d{1,2})月\s*(\d{1,2})[日号]?/);
+  if (match) {
+    return {
+      month: Number(match[1]),
+      day: Number(match[2]),
+    };
+  }
 
-  const isApr19 =
-    /4月\s*19日/.test(text) ||
-    /\b4\/19\b/.test(text) ||
-    /\b19\s*apr(?:il)?\b/i.test(text) ||
-    /\bapr(?:il)?\s*19\b/i.test(text);
+  // Format: 19/4 or 4/19
+  match = text.match(/\b(\d{1,2})\/(\d{1,2})\b/);
+  if (match) {
+    const first = Number(match[1]);
+    const second = Number(match[2]);
 
-  if (isApr18) {
+    // Clearly day/month, e.g. 19/4
+    if (first > 12 && second >= 1 && second <= 12) {
+      return {
+        month: second,
+        day: first,
+      };
+    }
+
+    // Clearly month/day, e.g. 4/19
+    if (first >= 1 && first <= 12 && second > 12) {
+      return {
+        month: first,
+        day: second,
+      };
+    }
+
+    // Ambiguous like 4/5 -> do not guess
+    return null;
+  }
+
+  // Format: 19日 / 19号
+  match = text.match(/\b(\d{1,2})[日号]\b/);
+  if (match) {
+    return {
+      month: null,
+      day: Number(match[1]),
+    };
+  }
+
+  return null;
+}
+
+function applyCalendarDayOverride(action, rawText) {
+  if (!action || !Array.isArray(action.people) || !action.event) return action;
+
+  const parts = extractMentionedDateParts(rawText);
+  if (!parts || !parts.day) return action;
+
+  const monthMap = {
+    January: 1,
+    February: 2,
+    March: 3,
+    April: 4,
+    May: 5,
+    June: 6,
+    July: 7,
+    August: 8,
+    September: 9,
+    October: 10,
+    November: 11,
+    December: 12,
+  };
+
+  const inferredMonth = parts.month || monthMap[action.event];
+  if (!inferredMonth) return action;
+
+  const year = new Date().getFullYear();
+  const dateObj = new Date(year, inferredMonth - 1, parts.day);
+
+  // invalid date safety check
+  if (
+    dateObj.getFullYear() !== year ||
+    dateObj.getMonth() !== inferredMonth - 1 ||
+    dateObj.getDate() !== parts.day
+  ) {
+    return action;
+  }
+
+  const weekday = dateObj.getDay(); // 0 = Sunday, 6 = Saturday
+
+  if (weekday === 6) {
     action.people = action.people.map((p) => ({
       ...p,
       sat: true,
@@ -162,7 +233,7 @@ function applySpecificDateOverrides(action, rawText) {
     return action;
   }
 
-  if (isApr19) {
+  if (weekday === 0) {
     action.people = action.people.map((p) => ({
       ...p,
       sat: false,
@@ -185,5 +256,6 @@ module.exports = {
   inferSharedPhone,
   getSingaporeTimestamp,
   applyDayOverridesFromRawText,
-  applySpecificDateOverrides,
+  extractMentionedDateParts,
+  applyCalendarDayOverride,
 };
