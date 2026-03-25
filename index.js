@@ -14,7 +14,7 @@ const {
   inferSharedPhone,
   getSingaporeTimestamp,
   applyDayOverridesFromRawText,
-  applySpecificDateOverrides,
+  applyCalendarDayOverride,
 } = require("./utils/helpers");
 
 const { resolveEvent } = require("./utils/eventResolver");
@@ -37,6 +37,14 @@ if (!config.sheetId) {
 if (!config.openAiApiKey) {
   throw new Error("Missing OPENAI_API_KEY in environment variables.");
 }
+
+process.on("unhandledRejection", (reason) => {
+  console.error("Unhandled Rejection:", reason);
+});
+
+process.on("uncaughtException", (error) => {
+  console.error("Uncaught Exception:", error);
+});
 
 const client = new Client({
   authStrategy: new LocalAuth({
@@ -172,7 +180,8 @@ function findRowsForCancellation({ action, senderPhone, existingRows }) {
 }
 
 client.on("message", async (msg) => {
-  console.log("Message received:", msg.from, msg.body);
+  console.log("Message received:", msg?.from, msg?.body);
+
   try {
     if (!msg || !msg.body) return;
     if (msg.from === "status@broadcast") return;
@@ -193,6 +202,8 @@ client.on("message", async (msg) => {
     const defaultEventFromSheet = await getDefaultEventFromFactTable();
 
     const extraction = await callOpenAIForExtraction(messageText, context);
+    console.log("Extraction result:", JSON.stringify(extraction));
+
     const actions = Array.isArray(extraction.actions) ? extraction.actions : [];
 
     if (!actions.length) {
@@ -222,8 +233,7 @@ client.on("message", async (msg) => {
         });
 
         action = applyDayOverridesFromRawText(action, messageText);
-
-        action = applySpecificDateOverrides(action, messageText);
+        action = applyCalendarDayOverride(action, messageText);
 
         const rowsToAdd = await buildRegistrationRows({
           action,
