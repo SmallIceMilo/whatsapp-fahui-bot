@@ -97,16 +97,28 @@ function getSingaporeTimestamp() {
   return `${map.year}-${map.month}-${map.day} ${map.hour}:${map.minute}:${map.second}`;
 }
 
+function hasMultiDayPattern(text) {
+  return (
+    /(\d{1,2})月\s*(\d{1,2})\s*(及|和|与|與|-|到|至|、)\s*(\d{1,2})[日号]?/.test(text) ||
+    /(\d{1,2})\s*(及|和|与|與|-|到|至|、)\s*(\d{1,2})[日号]/.test(text) ||
+    /\b(\d{1,2})\/(\d{1,2})\s*(and|&|-|to)\s*(\d{1,2})\/(\d{1,2})\b/i.test(text)
+  );
+}
+
 function applyDayOverridesFromRawText(action, rawText) {
   if (!action || !Array.isArray(action.people)) return action;
 
   const text = rawText || "";
 
-  const bothDaysRegex = /(\d{1,2})\s*(及|和|-|到)\s*(\d{1,2})/i;
+  const bothDaysRegex =
+    /(\d{1,2})月\s*(\d{1,2})\s*(及|和|与|與|-|到|至|、)\s*(\d{1,2})[日号]?/i.test(text) ||
+    /(\d{1,2})\s*(及|和|与|與|-|到|至|、)\s*(\d{1,2})[日号]/i.test(text) ||
+    /\b(\d{1,2})\/(\d{1,2})\s*(and|&|-|to)\s*(\d{1,2})\/(\d{1,2})\b/i.test(text);
+
   const saturdayRegex = /saturday|星期六|周六|礼拜六|禮拜六/i;
   const sundayRegex = /sunday|星期日|星期天|周日|周天|礼拜天|礼拜日|禮拜天|禮拜日/i;
 
-  if (bothDaysRegex.test(text)) {
+  if (bothDaysRegex) {
     action.people = action.people.map((p) => ({
       ...p,
       sat: true,
@@ -139,7 +151,12 @@ function applyDayOverridesFromRawText(action, rawText) {
 function extractMentionedDateParts(rawText) {
   const text = rawText || "";
 
-  // Format: 4月19日 / 4月19号
+  // If message clearly mentions multiple days, do NOT extract a single date
+  if (hasMultiDayPattern(text)) {
+    return null;
+  }
+
+  // 4月19日 / 4月19号
   let match = text.match(/(\d{1,2})月\s*(\d{1,2})[日号]?/);
   if (match) {
     return {
@@ -148,13 +165,12 @@ function extractMentionedDateParts(rawText) {
     };
   }
 
-  // Format: 19/4 or 4/19
+  // 19/4 or 4/19
   match = text.match(/\b(\d{1,2})\/(\d{1,2})\b/);
   if (match) {
     const first = Number(match[1]);
     const second = Number(match[2]);
 
-    // Clearly day/month, e.g. 19/4
     if (first > 12 && second >= 1 && second <= 12) {
       return {
         month: second,
@@ -162,7 +178,6 @@ function extractMentionedDateParts(rawText) {
       };
     }
 
-    // Clearly month/day, e.g. 4/19
     if (first >= 1 && first <= 12 && second > 12) {
       return {
         month: first,
@@ -170,11 +185,10 @@ function extractMentionedDateParts(rawText) {
       };
     }
 
-    // Ambiguous like 4/5 -> do not guess
     return null;
   }
 
-  // Format: 19日 / 19号
+  // 19日 / 19号
   match = text.match(/\b(\d{1,2})[日号]\b/);
   if (match) {
     return {
@@ -189,7 +203,14 @@ function extractMentionedDateParts(rawText) {
 function applyCalendarDayOverride(action, rawText) {
   if (!action || !Array.isArray(action.people) || !action.event) return action;
 
-  const parts = extractMentionedDateParts(rawText);
+  const text = rawText || "";
+
+  // If user already clearly specified multiple days, keep both days
+  if (hasMultiDayPattern(text)) {
+    return action;
+  }
+
+  const parts = extractMentionedDateParts(text);
   if (!parts || !parts.day) return action;
 
   const monthMap = {
@@ -213,7 +234,6 @@ function applyCalendarDayOverride(action, rawText) {
   const year = new Date().getFullYear();
   const dateObj = new Date(year, inferredMonth - 1, parts.day);
 
-  // invalid date safety check
   if (
     dateObj.getFullYear() !== year ||
     dateObj.getMonth() !== inferredMonth - 1 ||
