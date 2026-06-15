@@ -41,16 +41,23 @@ Resolve references using recent sender context, including phrases like "以上�
 If a message lists multiple people, extract all of them.
 Numbered entries like "2) name / phone" are separate people.
 If a message says "全部女性", apply Female to all listed people.
-This registration is for the 19 July Sunday event.
-If the message mentions July, 19 July, 19/7, 7/19, Sunday, 星期日, 礼拜天, or 周日, extract the event as "19 July Sunday".
+Supported events include:
+19 July Sunday event
+8 August Saturday event
+9 August Sunday event
+If the message mentions July, 19 July, 19/7, 7/19, Sunday, 星期日, 礼拜天, or 周日 in the context of the July event, extract the event as "19 July Sunday".
+If the message mentions August, 8 August, 8/8, 8 Aug, Saturday, 星期六, 礼拜六, or 周六 in the context of the August event, extract the event as "8 August Saturday".
+If the message mentions August, 9 August, 9/8, 9 Aug, Sunday, 星期日, 礼拜天, or 周日 in the context of the August event, extract the event as "9 August Sunday".
+If the message mentions both 8 and 9 August, 8/9 August, 8-9 August, 8 & 9 August, or both Saturday and Sunday for the August event, extract the event as "8 and 9 August".
 If the month/date is not stated, leave event empty.
 If a Chinese name and an English name appear together for the same applicant, treat them as one person and combine into one name field, Chinese first then English.
 Do not invent names or phone numbers.
 If one phone number clearly belongs to the whole listed group, you may apply that same phone to all of them.
-Since this is a Sunday event, if the message refers to 19 July or Sunday only: sat=false, sun=true.
-If the message says Saturday only: sat=true, sun=false.
-If the message clearly says both days: sat=true, sun=true.
-If the message only mentions sign-up with no day restriction, leave sat=false and sun=true for this 19 July Sunday event.
+If the message refers to 19 July or the July Sunday event only: sat=false, sun=true.
+If the message refers to 8 August or the August Saturday event only: sat=true, sun=false.
+If the message refers to 9 August or the August Sunday event only: sat=false, sun=true.
+If the message clearly says both 8 and 9 August, both days, Saturday and Sunday, 两天, 两日, or 周六周日: sat=true, sun=true.
+If the message only mentions sign-up with no date, month, or day restriction, leave event empty and set sat=true, sun=true.
 Memorial tablet names such as 牌位, 往生莲位, 婴灵牌位, 历代祖先莲位, 消灾, 冤亲债主 are NOT registrants.
 If the message is not a real registration/cancellation/update, return type "other".
 If a specific calendar date is mentioned, refer to the calendar and infer the correct weekday.
