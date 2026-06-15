@@ -16,7 +16,7 @@ Schema:
   "actions": [
     {
       "type": "registration" | "cancellation" | "update" | "other",
-      "event": "April",
+      "event": "July",
       "people": [
         {
           "name": "蔡美群 chai mee kwan",
