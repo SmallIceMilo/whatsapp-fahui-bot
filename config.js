@@ -5,8 +5,8 @@ module.exports = {
   openAiApiKey: process.env.OPENAI_API_KEY,
   sheetTabId: Number(process.env.GOOGLE_SHEET_TAB_ID || 0),
   timezone: "Asia/Singapore",
-  defaultEventFallback: "April",
-  supportedEvents: ["April", "May"],
+  defaultEventFallback: "July",
+  supportedEvents: ["July", "August", "October"],
   contextExpiryMinutes: 60,
   serviceAccount: {
     type: "service_account",
