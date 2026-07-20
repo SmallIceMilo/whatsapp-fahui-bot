@@ -1,22 +1,23 @@
-const fetch = require("node-fetch");
+const { OpenAI } = require("openai");
 const config = require("../config");
 const { stripCodeFences } = require("../utils/helpers");
 
-async function callOpenAIForExtraction(messageText, context = {}) {
+const openai = new OpenAI({ apiKey: config.openAiApiKey });
+
+async function callOpenAIForExtraction(messageText, context = {}, base64Image = null, mimeType = null) {
+  const currentDate = new Date().toLocaleDateString('en-GB', { timeZone: config.timezone, weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  
   const prompt = `
 You extract registration actions from WhatsApp messages for event sign-ups.
 
-Return STRICT JSON only.
-No markdown.
-No explanation.
-No text outside JSON.
+Return STRICT JSON only. No markdown. No explanation. No text outside JSON.
 
 Schema:
 {
   "actions": [
     {
       "type": "registration" | "cancellation" | "update" | "other",
-      "event": "July",
+      "event": "August",
       "people": [
         {
           "name": "蔡美群 chai mee kwan",
@@ -30,75 +31,70 @@ Schema:
   ]
 }
 
+Today's date is: ${currentDate}
+
 Recent sender context:
 ${JSON.stringify(context, null, 2)}
 
-Rules:
+Rules for Name Extraction:
+- If a user says "I am helping my mum to register, her name is X", the registrant's name is X, not "mum". Pay close attention to who is actually attending.
+- Ignore names of people who are just helping to register but not attending (e.g. "my name is ang siew fong, i want to help my mum to register and her name is paulin", the name is paulin).
+- Support Chinese and English. Preserve names exactly as written. Do not translate.
+- If a Chinese name and an English name appear together for the same applicant, treat them as one person and combine into one name field (Chinese first then English).
+- Memorial tablet names such as 牌位, 往生莲位, 婴灵牌位, 历代祖先莲位, 消灾, 冤亲债主 are NOT registrants.
 
-Support Chinese and English.
-Preserve names exactly as written. Do not translate names.
-Resolve references using recent sender context, including phrases like "以上三位", "上述三位", "这三位", "same people", and "the above people".
-If a message lists multiple people, extract all of them.
-Numbered entries like "2) name / phone" are separate people.
-If a message says "全部女性", apply Female to all listed people.
-Supported events include:
-19 July Sunday event
-8 August Saturday event
-9 August Sunday event
-If the message mentions July, 19 July, 19/7, 7/19, Sunday, 星期日, 礼拜天, or 周日 in the context of the July event, extract the event as "19 July Sunday".
-If the message mentions August, 8 August, 8/8, 8 Aug, Saturday, 星期六, 礼拜六, or 周六 in the context of the August event, extract the event as "8 August Saturday".
-If the message mentions August, 9 August, 9/8, 9 Aug, Sunday, 星期日, 礼拜天, or 周日 in the context of the August event, extract the event as "9 August Sunday".
-If the message mentions both 8 and 9 August, 8/9 August, 8-9 August, 8 & 9 August, or both Saturday and Sunday for the August event, extract the event as "8 and 9 August".
-If the month/date is not stated, leave event empty.
-If a Chinese name and an English name appear together for the same applicant, treat them as one person and combine into one name field, Chinese first then English.
-Do not invent names or phone numbers.
-If one phone number clearly belongs to the whole listed group, you may apply that same phone to all of them.
-If the message refers to 19 July or the July Sunday event only: sat=false, sun=true.
-If the message refers to 8 August or the August Saturday event only: sat=true, sun=false.
-If the message refers to 9 August or the August Sunday event only: sat=false, sun=true.
-If the message clearly says both 8 and 9 August, both days, Saturday and Sunday, 两天, 两日, or 周六周日: sat=true, sun=true.
-If the message only mentions sign-up with no date, month, or day restriction, leave event empty and set sat=true, sun=true.
-Memorial tablet names such as 牌位, 往生莲位, 婴灵牌位, 历代祖先莲位, 消灾, 冤亲债主 are NOT registrants.
-If the message is not a real registration/cancellation/update, return type "other".
-If a specific calendar date is mentioned, refer to the calendar and infer the correct weekday.
-If the mentioned date is a Saturday session, set sat=true and sun=false.
-If the mentioned date is a Sunday session, set sat=false and sun=true.
-Do not set both days true when a single specific date is given.
+Rules for Event and Date Extraction:
+- The exact upcoming events are:
+  - "8/9 August"
+  - "10/11 October"
+  - "17/18 October"
+- CRITICAL: If a user registers for multiple events in one message (e.g. both August and October, or both 10/11 Oct and 17/18 Oct), you MUST return MULTIPLE actions in the JSON array, one for each event!
+- If the user mentions "10 Oct", "11 Oct", or mid-October, extract the event exactly as "10/11 October".
+- If the user mentions "17 Oct", "18 Oct", or late-October, extract the event exactly as "17/18 October".
+- If the user only says "October" without a date, check the poster image if available. If no image, assume the nearest upcoming October event based on today's date.
+- If the user does not specify an event, assume they are registering for the NEXT upcoming event based on today's date (${currentDate}).
+- If the user specifies a particular day (e.g., "Saturday only"), set sat=true, sun=false for that specific action.
+- If they specify "Sunday only", set sat=false, sun=true.
+- If they specify both days or don't specify, set both sat=true and sun=true.
+- If the message contains an image (poster), read the poster to determine the correct event month and date.
+
+General Rules:
+- If a message lists multiple people, extract all of them. Numbered entries like "2) name / phone" are separate people.
+- If "全部女性" (all female) is mentioned, apply Female to all.
+- Resolve references using context (e.g., "以上三位", "same people").
+- If one phone number belongs to the group, apply it to all. Do not invent numbers.
+- If the message is not a real registration/cancellation/update, return type "other".
 
 Message:
-${messageText}
+${messageText || "[Image Only]"}
 `.trim();
 
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${config.openAiApiKey}`,
-    },
-    body: JSON.stringify({
-      model: "gpt-4o-mini",
-      temperature: 0,
-      response_format: { type: "json_object" },
-      messages: [
-        {
-          role: "system",
-          content: "You are a precise JSON information extractor for event registration messages.",
-        },
-        {
-          role: "user",
-          content: prompt,
-        },
-      ],
-    }),
-  });
+  const userContent = [{ type: "text", text: prompt }];
 
-  if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`OpenAI API error: ${response.status} ${errText}`);
+  if (base64Image && mimeType) {
+    userContent.push({
+      type: "image_url",
+      image_url: { url: \`data:\${mimeType};base64,\${base64Image}\` }
+    });
   }
 
-  const data = await response.json();
-  const content = data?.choices?.[0]?.message?.content || "";
+  const response = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
+    temperature: 0,
+    response_format: { type: "json_object" },
+    messages: [
+      {
+        role: "system",
+        content: "You are a precise JSON information extractor for event registration messages. You can analyze images if provided.",
+      },
+      {
+        role: "user",
+        content: userContent,
+      },
+    ],
+  });
+
+  const content = response.choices[0]?.message?.content || "";
   const cleaned = stripCodeFences(content);
 
   return JSON.parse(cleaned);
