@@ -73,7 +73,7 @@ const sheetMutex = new Mutex();
 
 const client = new Client({
   authStrategy: new LocalAuth({
-    dataPath: "/app/.wwebjs_auth",
+    dataPath: "/app/.wwebjs_auth_v2",
   }),
   puppeteer: {
     headless: true,
