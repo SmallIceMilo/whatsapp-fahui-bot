@@ -49,13 +49,14 @@ Rules for Event and Date Extraction:
   - "10/11 October"
   - "17/18 October"
 - CRITICAL: If a user registers for multiple events in one message (e.g. both August and October, or both 10/11 Oct and 17/18 Oct), you MUST return MULTIPLE actions in the JSON array, one for each event!
-- If the user mentions "10 Oct", "11 Oct", or mid-October, extract the event exactly as "10/11 October".
-- If the user mentions "17 Oct", "18 Oct", or late-October, extract the event exactly as "17/18 October".
+- If the user mentions "10 Oct", "11 Oct", "10/10", "11/10", or mid-October, extract the event exactly as "10/11 October".
+- If the user mentions "17 Oct", "18 Oct", "17/10", "18/10", or late-October, extract the event exactly as "17/18 October".
 - If the user only says "October" without a date, check the poster image if available. If no image, assume the nearest upcoming October event based on today's date.
 - If the user does not specify an event, assume they are registering for the NEXT upcoming event based on today's date (${currentDate}).
-- If the user specifies a particular day (e.g., "Saturday only"), set sat=true, sun=false for that specific action.
-- If they specify "Sunday only", set sat=false, sun=true.
-- If they specify both days or don't specify, set both sat=true and sun=true.
+- CRITICAL DAY LOGIC: Pay close attention to the exact dates mentioned in ANY language or format (e.g., "10/10", "10 Oct", "Oct 10", "10号", "10日", "10", "Saturday", "星期六", etc):
+  - If they ONLY mention dates corresponding to the FIRST day of the event (e.g. the 8th, 10th, or 17th), set sat=true, sun=false.
+  - If they ONLY mention dates corresponding to the SECOND day of the event (e.g. the 9th, 11th, or 18th), set sat=false, sun=true.
+  - If they mention both dates (e.g., "10 & 11", "both days", "两天") or don't specify any particular date, set both sat=true and sun=true.
 - If the message contains an image (poster), read the poster to determine the correct event month and date.
 
 General Rules:
