@@ -86,16 +86,49 @@ const client = new Client({
   },
 });
 
+const http = require("http");
+
+let latestQr = "";
+let isAuthenticated = false;
+
 client.on("qr", (qr) => {
-  qrcode.generate(qr, { small: true });
+  latestQr = qr;
+  console.log("New QR Code generated. Visit your Railway app URL to scan it!");
 });
 
 client.on("ready", () => {
   console.log("Client is ready!");
+  isAuthenticated = true;
 });
 
 client.on("authenticated", () => {
   console.log("WhatsApp authenticated.");
+  isAuthenticated = true;
+});
+
+// A tiny built-in web server to display the QR code!
+http.createServer((req, res) => {
+  res.writeHead(200, { "Content-Type": "text/html" });
+  
+  if (isAuthenticated) {
+    res.end("<h1>Bot is Authenticated and Running!</h1>");
+  } else if (latestQr) {
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(latestQr)}`;
+    res.end(`
+      <html>
+        <head><meta http-equiv="refresh" content="5"></head>
+        <body style="text-align: center; font-family: sans-serif; padding-top: 50px;">
+          <h1>WhatsApp Login</h1>
+          <p>This QR code automatically refreshes every 5 seconds.</p>
+          <img src="${qrUrl}" alt="QR Code" />
+        </body>
+      </html>
+    `);
+  } else {
+    res.end("<h1>Waiting for WhatsApp to generate QR code...</h1>");
+  }
+}).listen(process.env.PORT || 3000, () => {
+  console.log("Web server is running for QR code display.");
 });
 
 client.on("auth_failure", (msg) => {
