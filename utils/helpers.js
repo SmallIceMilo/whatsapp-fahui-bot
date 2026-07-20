@@ -108,15 +108,37 @@ function hasMultiDayPattern(text) {
 function applyDayOverridesFromRawText(action, rawText) {
   if (!action || !Array.isArray(action.people)) return action;
 
-  const text = rawText || "";
+  const text = (rawText || "").toLowerCase();
+  const event = String(action.event || "").toLowerCase();
 
   const bothDaysRegex =
     /(\d{1,2})月\s*(\d{1,2})\s*(及|和|与|與|-|到|至|、)\s*(\d{1,2})[日号]?/i.test(text) ||
-    /(\d{1,2})\s*(及|和|与|與|-|到|至|、)\s*(\d{1,2})[日号]/i.test(text) ||
+    /(\d{1,2})\s*(及|和|与|与|-|到|至|、)\s*(\d{1,2})[日号]/i.test(text) ||
     /\b(\d{1,2})\/(\d{1,2})\s*(and|&|-|to)\s*(\d{1,2})\/(\d{1,2})\b/i.test(text);
 
   const saturdayRegex = /saturday|星期六|周六|礼拜六|禮拜六/i;
   const sundayRegex = /sunday|星期日|星期天|周日|周天|礼拜天|礼拜日|禮拜天|禮拜日/i;
+
+  let isSatOnly = saturdayRegex.test(text) && !sundayRegex.test(text);
+  let isSunOnly = sundayRegex.test(text) && !saturdayRegex.test(text);
+
+  // Hardcode overrides for specific events if OpenAI fails to parse the boolean intent
+  if (event.includes("10/11 october")) {
+    const has10 = /(10\/10|10 oct|oct 10|10号|10日|\b10\b)/i.test(text);
+    const has11 = /(11\/10|11 oct|oct 11|11号|11日|\b11\b)/i.test(text);
+    if (has10 && !has11) isSatOnly = true;
+    if (has11 && !has10) isSunOnly = true;
+  } else if (event.includes("17/18 october")) {
+    const has17 = /(17\/10|17 oct|oct 17|17号|17日|\b17\b)/i.test(text);
+    const has18 = /(18\/10|18 oct|oct 18|18号|18日|\b18\b)/i.test(text);
+    if (has17 && !has18) isSatOnly = true;
+    if (has18 && !has17) isSunOnly = true;
+  } else if (event.includes("8/9 august")) {
+    const has8 = /(8\/8|8 aug|aug 8|8号|8日|\b8\b)/i.test(text);
+    const has9 = /(9\/8|9 aug|aug 9|9号|9日|\b9\b)/i.test(text);
+    if (has8 && !has9) isSatOnly = true;
+    if (has9 && !has8) isSunOnly = true;
+  }
 
   if (bothDaysRegex) {
     action.people = action.people.map((p) => ({
@@ -127,7 +149,7 @@ function applyDayOverridesFromRawText(action, rawText) {
     return action;
   }
 
-  if (saturdayRegex.test(text) && !sundayRegex.test(text)) {
+  if (isSatOnly) {
     action.people = action.people.map((p) => ({
       ...p,
       sat: true,
@@ -136,7 +158,7 @@ function applyDayOverridesFromRawText(action, rawText) {
     return action;
   }
 
-  if (sundayRegex.test(text) && !saturdayRegex.test(text)) {
+  if (isSunOnly) {
     action.people = action.people.map((p) => ({
       ...p,
       sat: false,
