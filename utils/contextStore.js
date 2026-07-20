@@ -43,6 +43,16 @@ function updateContextFromRegistration(context, action) {
   context.updatedAt = Date.now();
 }
 
+// Run a background cleanup every 15 minutes to prevent memory leaks from inactive users
+setInterval(() => {
+  const now = Date.now();
+  for (const key in pendingContexts) {
+    if (now - pendingContexts[key].updatedAt > 60 * 60 * 1000) {
+      delete pendingContexts[key];
+    }
+  }
+}, 15 * 60 * 1000);
+
 module.exports = {
   getOrCreateContext,
   updateContextFromRegistration,
