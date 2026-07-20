@@ -1,6 +1,7 @@
 require("dotenv").config();
 
 const { Client, LocalAuth } = require("whatsapp-web.js");
+const qrcode = require("qrcode-terminal");
 const config = require("./config");
 
 const {
@@ -46,6 +47,30 @@ process.on("uncaughtException", (error) => {
   console.error("Uncaught Exception:", error);
 });
 
+class Mutex {
+  constructor() {
+    this.queue = [];
+    this.locked = false;
+  }
+  async lock() {
+    return new Promise(resolve => {
+      this.queue.push(resolve);
+      this.dispatch();
+    });
+  }
+  dispatch() {
+    if (this.locked || this.queue.length === 0) return;
+    this.locked = true;
+    const resolve = this.queue.shift();
+    resolve();
+  }
+  unlock() {
+    this.locked = false;
+    this.dispatch();
+  }
+}
+const sheetMutex = new Mutex();
+
 const client = new Client({
   authStrategy: new LocalAuth({
     dataPath: "/app/.wwebjs_auth",
@@ -62,9 +87,7 @@ const client = new Client({
 });
 
 client.on("qr", (qr) => {
-  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(qr)}`;
-  console.log("Scan this QR code in your browser:");
-  console.log(qrUrl);
+  qrcode.generate(qr, { small: true });
 });
 
 client.on("ready", () => {
@@ -95,7 +118,8 @@ async function buildRegistrationRows({ action, senderWA, senderPhone, existingRo
 
   for (const person of people) {
     const name = (person.name || "").trim();
-    const phone = (person.phone || sharedPhone || "").trim();
+    // If the message contains a phone number, use it. Else, use the sender's actual WhatsApp number.
+    const phone = (person.phone || sharedPhone || senderPhone || "").trim();
     const gender = normalizeGender(person.gender || "");
 
     const sat = normalizeYesNoFromBoolOrString(person.sat, "YES");
@@ -180,13 +204,20 @@ function findRowsForCancellation({ action, senderPhone, existingRows }) {
 }
 
 client.on("message", async (msg) => {
-  console.log("Message received:", msg?.from, msg?.body);
+  console.log("Message received:", msg?.from, msg?.body, msg?.hasMedia ? "[Media Included]" : "");
 
   try {
-    if (!msg || !msg.body) return;
+    if (!msg || (!msg.body && !msg.hasMedia)) return;
     if (msg.from === "status@broadcast") return;
 
-    const messageText = msg.body.trim();
+    // Filter out obvious noise (videos, voice notes, stickers, etc.) to save Railway bandwidth and OpenAI costs
+    const ignoredTypes = ['video', 'audio', 'ptt', 'voice', 'sticker', 'document', 'location', 'vcard', 'call_log'];
+    if (ignoredTypes.includes(msg.type)) {
+      console.log(`Ignoring noise message of type: ${msg.type}`);
+      return;
+    }
+
+    const messageText = msg.body ? msg.body.trim() : "";
     const senderWA = getSenderWA(msg);
     const senderPhone = getSenderPhone(msg);
     const senderKey = senderWA || senderPhone;
@@ -197,102 +228,129 @@ client.on("message", async (msg) => {
       console.log("Testing message detected. No sheet action taken.");
       return;
     }
-
-    let { rows: existingRows } = await getRegistrationRows();
-    const defaultEventFromSheet = await getDefaultEventFromFactTable();
-
-    const extraction = await callOpenAIForExtraction(messageText, context);
-    console.log("Extraction result:", JSON.stringify(extraction));
-
-    const actions = Array.isArray(extraction.actions) ? extraction.actions : [];
-
-    if (!actions.length) {
-      console.log("No actions extracted.");
-      return;
+    
+    let base64Media = null;
+    let mimeType = null;
+    if (msg.hasMedia && msg.type === "image") {
+      // Check if the accompanying text has registration keywords
+      const isRegistrationRelated = /register|sign|join|attend|book|reserve|add|go|报名|參加|参加|登记|cancel|取消|预定|预订/i.test(messageText);
+      
+      // We ONLY download the image IF there are registration keywords. Images with no text are ignored.
+      if (isRegistrationRelated) {
+        try {
+          const media = await msg.downloadMedia();
+          if (media && media.mimetype && media.mimetype.startsWith("image/")) {
+            base64Media = media.data;
+            mimeType = media.mimetype;
+          }
+        } catch (err) {
+          console.error("Error downloading media:", err);
+        }
+      } else {
+        console.log("Ignored image because the accompanying text was not registration related or was empty.");
+      }
     }
 
-    let totalAdded = 0;
-    let totalDeleted = 0;
+    await sheetMutex.lock();
+    try {
+      let { rows: existingRows } = await getRegistrationRows();
+      const defaultEventFromSheet = await getDefaultEventFromFactTable();
 
-    for (const rawAction of actions) {
-      const type = String(rawAction.type || "").toLowerCase();
+      const extraction = await callOpenAIForExtraction(messageText, context, base64Media, mimeType);
+      console.log("Extraction result:", JSON.stringify(extraction));
 
-      if (type === "registration") {
-        let action = {
-          ...rawAction,
-          people: dedupePeople(rawAction.people || []),
-        };
+      const actions = Array.isArray(extraction.actions) ? extraction.actions : [];
 
-        action.event = resolveEvent({
-          extractedEvent: rawAction.event,
-          messageText,
-          contextLastEvent: context.lastEvent,
-          defaultEventFromSheet,
-          defaultEventFallback: config.defaultEventFallback,
-          supportedEvents: config.supportedEvents,
-        });
+      if (!actions.length) {
+        console.log("No actions extracted.");
+        return;
+      }
 
-        action = applyDayOverridesFromRawText(action, messageText);
-        action = applyCalendarDayOverride(action, messageText);
+      let totalAdded = 0;
+      let totalDeleted = 0;
 
-        const rowsToAdd = await buildRegistrationRows({
-          action,
-          senderWA,
-          senderPhone,
-          existingRows,
-        });
+      for (const rawAction of actions) {
+        const type = String(rawAction.type || "").toLowerCase();
 
-        if (rowsToAdd.length) {
-          await appendRegistrationRows(rowsToAdd);
-          totalAdded += rowsToAdd.length;
+        if (type === "registration") {
+          let action = {
+            ...rawAction,
+            people: dedupePeople(rawAction.people || []),
+          };
 
-          const latest = await getRegistrationRows();
-          existingRows = latest.rows;
-        }
-
-        updateContextFromRegistration(context, action);
-      } else if (type === "cancellation") {
-        const action = {
-          ...rawAction,
-          event: resolveEvent({
+          action.event = resolveEvent({
             extractedEvent: rawAction.event,
             messageText,
             contextLastEvent: context.lastEvent,
             defaultEventFromSheet,
             defaultEventFallback: config.defaultEventFallback,
             supportedEvents: config.supportedEvents,
-          }),
-          people: dedupePeople(rawAction.people || []),
-        };
+          });
 
-        const rowsToDelete = findRowsForCancellation({
-          action,
-          senderPhone,
-          existingRows,
-        });
+          action = applyDayOverridesFromRawText(action, messageText);
+          action = applyCalendarDayOverride(action, messageText);
 
-        if (rowsToDelete.length) {
-          await deleteRowsByNumber(rowsToDelete);
-          totalDeleted += rowsToDelete.length;
+          const rowsToAdd = await buildRegistrationRows({
+            action,
+            senderWA,
+            senderPhone,
+            existingRows,
+          });
 
-          const latest = await getRegistrationRows();
-          existingRows = latest.rows;
+          if (rowsToAdd.length) {
+            await appendRegistrationRows(rowsToAdd);
+            totalAdded += rowsToAdd.length;
+
+            const latest = await getRegistrationRows();
+            existingRows = latest.rows;
+          }
+
+          updateContextFromRegistration(context, action);
+        } else if (type === "cancellation") {
+          const action = {
+            ...rawAction,
+            event: resolveEvent({
+              extractedEvent: rawAction.event,
+              messageText,
+              contextLastEvent: context.lastEvent,
+              defaultEventFromSheet,
+              defaultEventFallback: config.defaultEventFallback,
+              supportedEvents: config.supportedEvents,
+            }),
+            people: dedupePeople(rawAction.people || []),
+          };
+
+          const rowsToDelete = findRowsForCancellation({
+            action,
+            senderPhone,
+            existingRows,
+          });
+
+          if (rowsToDelete.length) {
+            await deleteRowsByNumber(rowsToDelete);
+            totalDeleted += rowsToDelete.length;
+
+            const latest = await getRegistrationRows();
+            existingRows = latest.rows;
+          }
+
+          context.lastActionType = "cancellation";
+          context.updatedAt = Date.now();
+        } else if (type === "update") {
+          console.log("Update intent detected. Not implemented yet.");
+          context.lastActionType = "update";
+          context.updatedAt = Date.now();
+        } else {
+          console.log("Other / non-action message detected.");
         }
-
-        context.lastActionType = "cancellation";
-        context.updatedAt = Date.now();
-      } else if (type === "update") {
-        console.log("Update intent detected. Not implemented yet.");
-        context.lastActionType = "update";
-        context.updatedAt = Date.now();
-      } else {
-        console.log("Other / non-action message detected.");
       }
-    }
 
-    console.log(`Done. Added: ${totalAdded}, Deleted: ${totalDeleted}`);
+      console.log(`Done. Added: ${totalAdded}, Deleted: ${totalDeleted}`);
+    } finally {
+      sheetMutex.unlock();
+    }
   } catch (error) {
-    console.error("Error:", error);
+    console.error("Error processing message:", error);
   }
 });
 
