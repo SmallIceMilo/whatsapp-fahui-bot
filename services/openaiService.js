@@ -74,7 +74,7 @@ ${messageText || "[Image Only]"}
   if (base64Image && mimeType) {
     userContent.push({
       type: "image_url",
-      image_url: { url: \`data:\${mimeType};base64,\${base64Image}\` }
+      image_url: { url: `data:${mimeType};base64,${base64Image}` }
     });
   }
 
