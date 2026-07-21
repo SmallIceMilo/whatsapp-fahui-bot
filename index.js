@@ -160,21 +160,26 @@ async function buildRegistrationRows({ action, senderWA, senderPhone, existingRo
 
     let existingRow = null;
 
-    if (phone) {
+    const normEvent = String(action.event || "").toLowerCase();
+    const normName = String(name).toLowerCase().replace(/\s+/g, "");
+    const normPhone = String(phone).replace(/\s+/g, "");
+    const normSender = String(senderPhone).replace(/\s+/g, "");
+
+    if (normPhone) {
       existingRow = existingRows.find(
         (r) =>
-          String(r.Event).trim() === action.event &&
-          String(r.Name).trim() === name &&
-          String(r.Phone).trim() === phone
+          String(r.Event).trim().toLowerCase() === normEvent &&
+          String(r.Name).toLowerCase().replace(/\s+/g, "") === normName &&
+          String(r.Phone).replace(/\s+/g, "") === normPhone
       );
     }
 
     if (!existingRow) {
       existingRow = existingRows.find(
         (r) =>
-          String(r.Event).trim() === action.event &&
-          String(r.Name).trim() === name &&
-          String(r.Sender_phone).trim() === senderPhone
+          String(r.Event).trim().toLowerCase() === normEvent &&
+          String(r.Name).toLowerCase().replace(/\s+/g, "") === normName &&
+          String(r.Sender_phone).replace(/\s+/g, "") === normSender
       );
     }
 
