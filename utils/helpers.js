@@ -108,75 +108,22 @@ function hasMultiDayPattern(text) {
 function applyDayOverridesFromRawText(action, rawText) {
   if (!action || !Array.isArray(action.people)) return action;
 
+  // For multi-person messages, gpt-4o handles per-person day extraction.
+  // Only apply overrides for single-person messages.
+  if (action.people.length > 1) return action;
+
   const text = (rawText || "").toLowerCase();
-  const event = String(action.event || "").toLowerCase();
 
   const saturdayRegex = /saturday|星期六|周六|礼拜六|禮拜六/i;
   const sundayRegex = /sunday|星期日|星期天|周日|周天|礼拜天|礼拜日|禮拜天|禮拜日/i;
 
-  // If message has MIXED day counts per person (some 1天, some 2天),
-  // trust OpenAI's per-person extraction instead of bulk overriding everyone.
-  const hasMixedDays = /1天|一天|1日|一日/i.test(text) && /2天|两天|兩天|两日|兩日/i.test(text);
-  if (hasMixedDays) return action;
-
-  let isBothDays =
-    // Explicit "both days" / "2天" wording
-    /2天|两天|兩天|both days|两日|兩日/i.test(text) ||
-    // Dates with separator: 8号及9号, 8日和9日, 8-9号, 10.11号, etc.
-    /(\d{1,2})[日号]?\s*(及|和|与|與|-|到|至|、|\.)\s*(\d{1,2})[日号]/i.test(text) ||
-    /(\d{1,2})月\s*(\d{1,2})\s*(及|和|与|與|-|到|至|、|\.)\s*(\d{1,2})[日号]?/i.test(text) ||
-    /\b(\d{1,2})\/(\d{1,2})\s*(and|&|-|to)\s*(\d{1,2})\/(\d{1,2})\b/i.test(text);
-
-  let isSatOnly = saturdayRegex.test(text) && !sundayRegex.test(text);
-  let isSunOnly = sundayRegex.test(text) && !saturdayRegex.test(text);
-
-  // Hardcode overrides for specific events if OpenAI fails to parse the boolean intent
-  if (event.includes("10/11 october")) {
-    const has10 = /(10\/10|10 oct|oct 10|10号|10日|\b10\b)/i.test(text);
-    const has11 = /(11\/10|11 oct|oct 11|11号|11日|\b11\b)/i.test(text);
-    if (has10 && has11) isBothDays = true;
-    else if (has10) isSatOnly = true;
-    else if (has11) isSunOnly = true;
-  } else if (event.includes("17/18 october")) {
-    const has17 = /(17\/10|17 oct|oct 17|17号|17日|\b17\b)/i.test(text);
-    const has18 = /(18\/10|18 oct|oct 18|18号|18日|\b18\b)/i.test(text);
-    if (has17 && has18) isBothDays = true;
-    else if (has17) isSatOnly = true;
-    else if (has18) isSunOnly = true;
-  } else if (event.includes("8/9 august")) {
-    const has8 = /(8\/8|8 aug|aug 8|8号|8日)/i.test(text);
-    const has9 = /(9\/8|9 aug|aug 9|9号|9日)/i.test(text);
-    // Also catch consecutive format: 8号9号 or 8日9日
-    const hasConsecutive = /8[号日]\s*9[号日]/i.test(text) || /8月8[号日]\s*9[号日]/i.test(text);
-    if (hasConsecutive || (has8 && has9)) isBothDays = true;
-    else if (has8) isSatOnly = true;
-    else if (has9) isSunOnly = true;
-  }
-
-  if (isBothDays) {
-    action.people = action.people.map((p) => ({
-      ...p,
-      sat: true,
-      sun: true,
-    }));
+  if (saturdayRegex.test(text) && !sundayRegex.test(text)) {
+    action.people = action.people.map((p) => ({ ...p, sat: true, sun: false }));
     return action;
   }
 
-  if (isSatOnly) {
-    action.people = action.people.map((p) => ({
-      ...p,
-      sat: true,
-      sun: false,
-    }));
-    return action;
-  }
-
-  if (isSunOnly) {
-    action.people = action.people.map((p) => ({
-      ...p,
-      sat: false,
-      sun: true,
-    }));
+  if (sundayRegex.test(text) && !saturdayRegex.test(text)) {
+    action.people = action.people.map((p) => ({ ...p, sat: false, sun: true }));
     return action;
   }
 
@@ -237,6 +184,9 @@ function extractMentionedDateParts(rawText) {
 
 function applyCalendarDayOverride(action, rawText) {
   if (!action || !Array.isArray(action.people) || !action.event) return action;
+
+  // For multi-person messages, trust gpt-4o's per-person extraction.
+  if (action.people.length > 1) return action;
 
   const text = rawText || "";
 
